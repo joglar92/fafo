@@ -375,11 +375,11 @@
     const oppId = comp === 'cup' ? currentCupOpponent() : currentOpponent();
     const opp = teamsById[oppId];
     const params = new URLSearchParams({
-      mode: 'career', me: state.clubName, meColor: state.clubColor,
-      opp: opp.name, oppColor: opp.color, oppId: opp.id, comp: comp,
-      p1: state.playerName
+      homeName: state.clubName, homeColor: state.clubColor,
+      awayName: opp.name, awayColor: opp.color,
+      side: '0', career: '1', oppId: opp.id, comp: comp
     });
-    window.location.href = '/game/fafo.html?' + params.toString();
+    window.location.href = '/pro/index.html?' + params.toString();
   }
 
   function applyPending() {
