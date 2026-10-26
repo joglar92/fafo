@@ -1,0 +1,9 @@
+[
+  {"id":"t1","name":"Rayo Azul","strength":82,"color":"#1f6feb"},
+  {"id":"t2","name":"Atlético Norte","strength":80,"color":"#b3302f"},
+  {"id":"t3","name":"Deportivo Sur","strength":78,"color":"#c77b1f"},
+  {"id":"t4","name":"Sporting Central","strength":84,"color":"#2ea043"},
+  {"id":"t5","name":"Unión del Plata","strength":79,"color":"#8b5cf6"},
+  {"id":"t6","name":"Los Andes FC","strength":81,"color":"#0ea5a5"},
+  {"id":"t7","name":"Real Costa","strength":83,"color":"#e11d48"}
+]

@@ -45,10 +45,20 @@
   let state = freshState();
   let remoteState = null;   // para el guest
   let remoteInput = null;   // input del guest en el host
-  let mode = 'local';       // 'local' | 'online'
+  let mode = 'local';       // 'local' | 'online' | 'cpu'
   let role = null;          // 'host' | 'guest'
   let socket = null;
   let roomCode = null;
+  let reported = false;
+
+  // ---- config carrera / vs CPU ----
+  const qs = new URLSearchParams(location.search);
+  const CAREER = qs.get('mode') === 'career' || qs.get('mode') === 'cpu';
+  const myName = qs.get('me') || 'Azul';
+  const myColor = qs.get('meColor') || '#4dabf7';
+  const oppName = qs.get('opp') || 'Rojo';
+  const oppColor = qs.get('oppColor') || '#ff6b6b';
+  const oppId = qs.get('oppId') || null;
 
   const keys = {};
 
@@ -96,6 +106,16 @@
     p.vy += d.y * ACC;
     const sp = Math.hypot(p.vx, p.vy);
     if (sp > MAX_SPEED) { p.vx = p.vx / sp * MAX_SPEED; p.vy = p.vy / sp * MAX_SPEED; }
+  }
+
+  function cpuInput() {
+    const p = state.b, ball = state.ball;
+    const dx = ball.x - p.x, dy = ball.y - p.y;
+    const dist = Math.hypot(dx, dy);
+    let x = 0, y = 0;
+    if (Math.abs(dx) > 2) x = Math.sign(dx);
+    if (Math.abs(dy) > 2) y = Math.sign(dy);
+    return { x, y, kick: dist < P_R + B_R + 6 };
   }
 
   function kickBall(p) {
@@ -182,6 +202,15 @@
       applyInput(state.b, inputB());
       if (inputA().kick) kickBall(state.a);
       if (inputB().kick) kickBall(state.b);
+    } else if (mode === 'cpu') {
+      applyInput(state.a, inputA());
+      if (inputA().kick) kickBall(state.a);
+      const ai = cpuInput();
+      applyInput(state.b, ai);
+      if (ai.kick) {
+        state.b.dir = norm(0 - state.b.x, H / 2 - state.b.y);
+        kickBall(state.b);
+      }
     } else if (mode === 'online' && role === 'host') {
       applyInput(state.a, inputA());
       if (inputA().kick) kickBall(state.a);
@@ -245,8 +274,8 @@
     ctx.fillRect(W - 8, GOAL_Y - GOAL_HALF, 14, GOAL_HALF * 2);
 
     // jugadores
-    drawPlayer(s.a, '#4dabf7', 'A');
-    drawPlayer(s.b, '#ff6b6b', 'B');
+    drawPlayer(s.a, myColor, mode === 'cpu' ? myName : 'A');
+    drawPlayer(s.b, oppColor, mode === 'cpu' ? oppName : 'B');
 
     // pelota
     ctx.beginPath();
@@ -263,8 +292,8 @@
     }
 
     // HUD
-    scoreA.textContent = s.score.a;
-    scoreB.textContent = s.score.b;
+    scoreA.textContent = (mode === 'cpu' ? myName + ' ' : '') + s.score.a;
+    scoreB.textContent = s.score.b + (mode === 'cpu' ? ' ' + oppName : '');
     const t = Math.ceil(s.time);
     clock.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
   }
@@ -309,11 +338,18 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (mode === 'local' || (mode === 'online' && role === 'host')) {
+    if (mode === 'local' || mode === 'cpu' || (mode === 'online' && role === 'host')) {
       step();
       if (mode === 'online' && role === 'host' && socket) {
         socket.emit('state', serialize());
       }
+    }
+    if (mode === 'cpu' && CAREER && state.over && !reported) {
+      reported = true;
+      localStorage.setItem('fafo_career_pending', JSON.stringify({ myGoals: state.score.a, oppGoals: state.score.b, oppId: oppId }));
+      const h = document.getElementById('hint');
+      h.innerHTML = '<a href="/career.html" style="color:#3fb950;font-weight:700;text-decoration:underline;font-size:15px">← Volver al Modo Carrera</a>';
+      h.style.pointerEvents = 'auto';
     }
     draw();
     requestAnimationFrame(loop);
@@ -423,6 +459,17 @@
   window.addEventListener('keyup', (e) => {
     keys[e.key] = false;
   });
+
+  if (CAREER) {
+    mode = 'cpu';
+    role = null;
+    state = freshState();
+    state.started = true;
+    state.countdown = 3;
+    hideLobby();
+    hint.textContent = 'Vos: ' + myName + ' (W A S D + Espacio)  ·  CPU: ' + oppName;
+    hint.style.display = 'block';
+  }
 
   requestAnimationFrame(loop);
 })();
