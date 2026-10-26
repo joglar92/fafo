@@ -491,7 +491,7 @@
     const gltf = playerGltf;
     const box = new THREE.Box3().setFromObject(gltf.scene);
     const h = box.max.y - box.min.y || 1;
-    const scale = 44 / h;
+    const scale = 26 / h;   // alto objetivo ~26 unidades (antes 44 = muy grande)
     const idle = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
     const run = gltf.animations.find(c => /run/i.test(c.name)) || idle;
     const walk = gltf.animations.find(c => /walk/i.test(c.name)) || idle;
@@ -502,7 +502,7 @@
       base.traverse(o => {
         if (o.isMesh) {
           o.material = o.material.clone();
-          o.material.color.lerp(new THREE.Color(color), 0.65);
+          o.material.color.lerp(new THREE.Color(color), 0.85);
           if (o.material.emissive) o.material.emissive.setHex(0x000000);
           o.castShadow = true; o.receiveShadow = true;
         }
