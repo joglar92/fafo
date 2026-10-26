@@ -182,8 +182,8 @@ export class UI {
     const items = [
       ['play', 'JUGAR PARTIDO', 'Elige equipos, formación y dificultad y salta al césped.'],
       ['soon', 'TORNEO', 'Próximamente: eliminatorias con los 12 clubes.', 'torneo'],
-      ['soon', 'MODO CARRERA', 'Próximamente: temporadas, plantilla y progreso guardado.', 'carrera'],
-      ['soon', 'PERSONALIZAR', 'Próximamente: edita equipaciones, nombres y escudos.', 'personalizar'],
+      ['career', 'MODO CARRERA', 'Temporadas, plantilla y progreso con tu club.', 'carrera'],
+      ['personalizar', 'PERSONALIZAR', 'Edita tu club, colores y jugador.', 'personalizar'],
       ['settings', 'AJUSTES', 'Sonido, gráficos, cámara y controles.'],
     ];
     this.render('main', `
@@ -206,6 +206,8 @@ export class UI {
       play: () => { this._mainIdx = 0; this.game.audio.ui('ok'); this.teams(); },
       settings: () => { this._mainIdx = this.focusIdx; this.game.audio.ui('ok'); this.settings(() => this.main()); },
       soon: (arg) => { this._mainIdx = this.focusIdx; this.game.audio.ui('ok'); this.soon(arg); },
+      career: () => { location.href = '/career.html'; },
+      personalizar: () => { location.href = '/career.html'; },
     });
     if (this._mainIdx) this.focus(this._mainIdx, true);
     this.game.audio.music('menu');
@@ -522,6 +524,7 @@ export class UI {
         <nav class="menu compact">
           <button class="mi" data-nav data-act="resume" data-default><span class="mi-t">REANUDAR</span></button>
           ${user ? '<button class="mi" data-nav data-act="tactics"><span class="mi-t">FORMACIÓN Y TÁCTICA</span></button>' : ''}
+          ${user ? '<button class="mi" data-nav data-act="subs"><span class="mi-t">CAMBIOS</span></button>' : ''}
           <button class="mi" data-nav data-act="controls"><span class="mi-t">CONTROLES</span></button>
           <button class="mi" data-nav data-act="settings"><span class="mi-t">AJUSTES</span></button>
           <button class="mi" data-nav data-act="restart"><span class="mi-t">REINICIAR PARTIDO</span></button>
@@ -531,11 +534,48 @@ export class UI {
     `, {
       resume: () => g.resume(),
       tactics: () => this.tactics(true, () => this.pause()),
+      subs: () => this.subs(),
       controls: () => this.controls(() => this.pause()),
       settings: () => this.settings(() => this.pause()),
       restart: () => g.restartMatch(),
       quit: () => g.quitToMenu(),
     }, () => g.resume());
+  }
+
+  subs() {
+    const g = this.game, m = g.match;
+    const team = m.userTeam;
+    if (!team) return this.pause();
+    this._subOut = null;
+    const redraw = () => this.subs();
+    const row = (name, pos, number, ovr, act, idx, sel) => `
+      <button data-act="${act}" data-arg="${idx}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:1px solid ${sel ? '#f2c230' : 'rgba(255,255,255,.12)'};border-radius:10px;background:${sel ? 'rgba(242,194,48,.14)' : 'transparent'};color:inherit;font:inherit;cursor:pointer;text-align:left;margin-bottom:6px">
+        <span style="width:36px;opacity:.55;font-size:12px">${pos}</span>
+        <b style="width:26px">${number}</b>
+        <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</span>
+        <b style="color:#3fb950">${ovr}</b>
+      </button>`;
+    const starters = team.players.map((p, i) => row(p.data.name, p.isGK ? 'POR' : (POS_LABEL[p.role] || p.role), p.data.number, p.data.ovr, 'subOut', i, this._subOut === i)).join('');
+    const bench = team.bench.map((b, i) => b.pos === 'GK' ? '' : row(b.name, POS_LABEL[b.pos] || b.pos, b.number, b.ovr, 'subIn', i, false)).join('');
+    this.render('subs', `
+      <div style="padding:26px;max-width:780px;margin:0 auto">
+        <header style="text-align:center;margin-bottom:18px"><h1 style="margin:0">CAMBIOS</h1><span style="opacity:.6;font-size:13px">${esc(team.name)}</span></header>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+          <div><h2 style="font-size:13px;opacity:.7;margin:0 0 10px">TITULARES</h2>${starters}</div>
+          <div><h2 style="font-size:13px;opacity:.7;margin:0 0 10px">SUPLENTES</h2>${bench}</div>
+        </div>
+        <p style="text-align:center;opacity:.75;margin:16px 0 0">${this._subOut != null ? 'Ahora elegí un suplente para meter' : 'Elegí un titular para sacar · ESC para volver'}</p>
+      </div>
+    `, {
+      subOut: (i) => { this._subOut = Number(i); this.game.audio.ui('move'); redraw(); },
+      subIn: (i) => {
+        if (this._subOut == null) return;
+        const ok = m.substitute(team, this._subOut, Number(i));
+        this._subOut = null;
+        if (ok) this.game.audio.ui('ok');
+        redraw();
+      },
+    }, () => this.pause());
   }
 
   scoreLine(m) {

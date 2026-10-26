@@ -371,13 +371,21 @@
     save(); render();
   }
 
+  function diffFor(s) {
+    if (s >= 85) return 'experto';
+    if (s >= 80) return 'dificil';
+    if (s >= 74) return 'normal';
+    return 'facil';
+  }
+
   function startMatch(comp) {
     const oppId = comp === 'cup' ? currentCupOpponent() : currentOpponent();
     const opp = teamsById[oppId];
     const params = new URLSearchParams({
       homeName: state.clubName, homeColor: state.clubColor,
       awayName: opp.name, awayColor: opp.color,
-      side: '0', career: '1', oppId: opp.id, comp: comp
+      side: '0', career: '1', oppId: opp.id, comp: comp, half: '3',
+      diff: diffFor(opp.strength || 78)
     });
     window.location.href = '/pro/index.html?' + params.toString();
   }

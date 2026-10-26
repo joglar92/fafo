@@ -241,6 +241,13 @@ export class Game {
       hud.card(d.player, d.card);
       hud.banner(d.card === 'yellow' ? 'TARJETA AMARILLA' : 'TARJETA ROJA', d.player.data.name, 2.4, d.card === 'yellow' ? 'yellow' : 'alert');
     });
+    m.on('sub', (d) => {
+      if (this.view) {
+        const idx = m.roster.indexOf(d.in);
+        if (idx >= 0) this.view.replacePlayer(idx, d.in);
+      }
+      hud.banner('CAMBIO', `${d.out.data.short} → ${d.in.data.short} (${d.team.short})`, 2.2);
+    });
     m.on('offside', (d) => hud.banner('FUERA DE JUEGO', d.player.data.short, 1.8));
     m.on('setPiece', (d) => {
       this.cut();

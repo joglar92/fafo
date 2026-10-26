@@ -125,6 +125,26 @@ export class MatchView {
     this.r.updateTexture(this.stadium.scoreboard.tex, this.stadium.scoreboard.canvas);
   }
 
+  /** Cambio: actualiza el aspecto del jugador en la posición `index` del roster. */
+  replacePlayer(index, player) {
+    const e = this.setup.roster[index];
+    e.data = player.data;
+    e.kit = player.isGK ? player.team.gkKit : player.team.kit;
+    e.isGK = player.isGK;
+    const entries = this.setup.roster.map((x) => ({ kit: x.kit, number: x.data.number, name: x.data.short }));
+    for (let i = 0; i < 3; i++) entries.push({ kit: REFEREE_KIT, number: '' });
+    const atlas = kitAtlas(entries, (this.setup.quality ?? 1) >= 1 ? 256 : 128);
+    this.r.updateTexture(this.atlasTex, atlas.canvas);
+    this.looks = this.setup.roster.map((x, i) => makeLook(x.data, x.kit, atlas.rects[i], x.isGK, i));
+    const refData = { height: 1, skin: '#d9a57e', hair: '#22201c', hairStyle: 0, number: 0 };
+    for (let i = 0; i < 3; i++) {
+      const look = makeLook({ ...refData, hairStyle: i === 1 ? 1 : 0 }, REFEREE_KIT, atlas.rects[this.setup.roster.length + i], false, i + 3);
+      look.boots = [0.08, 0.08, 0.09];
+      if (i > 0) look.flag = i === 1 ? [0.95, 0.85, 0.1] : [0.95, 0.3, 0.1];
+      this.looks.push(look);
+    }
+  }
+
   interpolate(alpha) {
     const a = this.prev, b = this.cur, f = this.f;
     f[0] = lerp(a[0], b[0], alpha); f[1] = lerp(a[1], b[1], alpha); f[2] = lerp(a[2], b[2], alpha);

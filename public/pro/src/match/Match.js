@@ -13,7 +13,7 @@ import { GoalkeeperAI } from './Goalkeeper.js';
 import { Referee, GESTURE } from './Referee.js';
 import { MatchRules } from './MatchRules.js';
 import { Replay, HEADER, STRIDE } from './Replay.js';
-import { PSTATE } from './Player.js';
+import { PSTATE, Player } from './Player.js';
 import * as Act from './Actions.js';
 
 const { HL, HW } = PITCH;
@@ -168,6 +168,27 @@ export class Match {
     if (pick === this.controlled) pick = list[++this.switchIdx % list.length];
     this.switchIdx++;
     this.setControlled(pick);
+  }
+
+  /** Cambio: saca un titular y mete un suplente de campo. Devuelve el nuevo jugador. */
+  substitute(team, outIdx, benchIdx) {
+    const out = team.players[outIdx];
+    if (!out || out.isGK || out.sentOff) return null;
+    const entry = team.bench[benchIdx];
+    if (!entry || entry.pos === 'GK') return null;
+    const np = new Player(team, { player: entry, slot: out.slot }, outIdx);
+    np.x = out.x; np.z = out.z; np.facing = out.facing;
+    np.stamina = 1; np.fatigue = 0;
+    team.players[outIdx] = np;
+    team.bench.splice(benchIdx, 1);
+    team.bench.push(out.data);
+    const ri = this.roster.indexOf(out);
+    if (ri >= 0) this.roster[ri] = np;
+    const ai = this.active.indexOf(out);
+    if (ai >= 0) this.active[ai] = np;
+    if (this.controlled === out) this.controlled = np;
+    this.emit('sub', { team, out, in: np, index: outIdx });
+    return np;
   }
 
   /** ¿Debe la IA mover por un momento al jugador controlado? (recepción asistida) */
