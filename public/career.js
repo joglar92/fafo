@@ -374,11 +374,10 @@
   function startMatch(comp) {
     const oppId = comp === 'cup' ? currentCupOpponent() : currentOpponent();
     const opp = teamsById[oppId];
-    const star = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0];
     const params = new URLSearchParams({
       mode: 'career', me: state.clubName, meColor: state.clubColor,
       opp: opp.name, oppColor: opp.color, oppId: opp.id, comp: comp,
-      p1: star.name
+      p1: state.playerName
     });
     window.location.href = '/game/fafo.html?' + params.toString();
   }
@@ -405,8 +404,10 @@
     const name = $('#clubName').value.trim();
     const color = selectedColor;
     if (!name) { alert('Poné un nombre'); return; }
+    const star = INITIAL_SQUAD.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0].name;
     state = {
       clubName: name, clubColor: color,
+      playerName: star, playerNumber: 10,
       budget: START_BUDGET,
       level: 1, xp: 0, coins: 500, gems: 10,
       squad: INITIAL_SQUAD.slice(),
@@ -417,6 +418,45 @@
     save();
     showDash();
     render();
+  }
+
+  // ---- personalizar ----
+  let customColor = PALETTE[0];
+
+  function renderCustomColors() {
+    $('#cColors').innerHTML = PALETTE.map(c =>
+      `<div class="swatch${c === customColor ? ' sel' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
+    $('#cColors').querySelectorAll('.swatch').forEach(s => s.addEventListener('click', () => {
+      customColor = s.dataset.c;
+      $('#cColors').querySelectorAll('.swatch').forEach(x => x.classList.toggle('sel', x === s));
+    }));
+  }
+
+  function openCustom() {
+    customColor = state.clubColor || PALETTE[0];
+    $('#cClubName').value = state.clubName;
+    $('#cPlayerName').value = state.playerName;
+    $('#cPlayerNumber').value = state.playerNumber;
+    renderCustomColors();
+    $('#customModal').style.display = 'flex';
+  }
+
+  function closeCustom() { $('#customModal').style.display = 'none'; }
+
+  function saveCustom() {
+    const name = $('#cClubName').value.trim();
+    const pname = $('#cPlayerName').value.trim();
+    const num = Math.max(1, Math.min(99, parseInt($('#cPlayerNumber').value, 10) || 10));
+    if (!name) { alert('Poné un nombre de club'); return; }
+    state.clubName = name;
+    state.clubColor = customColor;
+    state.playerName = pname || state.playerName;
+    state.playerNumber = num;
+    if (state.season && state.season.standings && state.season.standings['me']) {
+      state.season.standings['me'].name = name;
+      state.season.standings['me'].color = customColor;
+    }
+    save(); render(); closeCustom();
   }
 
   let selectedColor = PALETTE[0];
@@ -446,11 +486,19 @@
       render();
     }));
 
+    $('#btnSettings').addEventListener('click', openCustom);
+    $('#btnSaveCustom').addEventListener('click', saveCustom);
+    $('#btnCloseCustom').addEventListener('click', closeCustom);
+
     state = load();
     if (state) {
       // migración: si falta campo de la versión anterior
       if (state.cup === undefined) state.cup = newCup();
       if (state.level === undefined) { state.level = 1; state.xp = 0; state.coins = 500; state.gems = 10; }
+      if (state.playerName === undefined) {
+        state.playerName = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0].name;
+        state.playerNumber = 10;
+      }
       showDash();
       render();
       applyPending();
