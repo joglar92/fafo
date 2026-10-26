@@ -502,7 +502,14 @@
       base.traverse(o => {
         if (o.isMesh) {
           o.material = o.material.clone();
-          o.material.color.lerp(new THREE.Color(color), 0.85);
+          const n = (o.material.name || '').toLowerCase();
+          if (n.includes('joint')) {
+            // cuerpo/ropa -> color del equipo (camiseta/pantalón)
+            o.material.color.set(new THREE.Color(color));
+          } else {
+            // piel (cabeza, brazos, manos)
+            o.material.color.set(SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)]);
+          }
           if (o.material.emissive) o.material.emissive.setHex(0x000000);
           o.castShadow = true; o.receiveShadow = true;
         }
