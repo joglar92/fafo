@@ -373,9 +373,11 @@
   function startMatch(comp) {
     const oppId = comp === 'cup' ? currentCupOpponent() : currentOpponent();
     const opp = teamsById[oppId];
+    const star = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0];
     const params = new URLSearchParams({
       mode: 'career', me: state.clubName, meColor: state.clubColor,
-      opp: opp.name, oppColor: opp.color, oppId: opp.id, comp: comp
+      opp: opp.name, oppColor: opp.color, oppId: opp.id, comp: comp,
+      p1: star.name
     });
     window.location.href = '/game/fafo.html?' + params.toString();
   }

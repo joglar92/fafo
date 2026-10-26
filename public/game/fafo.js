@@ -60,6 +60,7 @@
   const oppColor = qs.get('oppColor') || '#ff6b6b';
   const oppId = qs.get('oppId') || null;
   const comp = qs.get('comp') || 'league';
+  const p1 = qs.get('p1') || null;
 
   const keys = {};
 
@@ -275,7 +276,7 @@
     ctx.fillRect(W - 8, GOAL_Y - GOAL_HALF, 14, GOAL_HALF * 2);
 
     // jugadores
-    drawPlayer(s.a, myColor, mode === 'cpu' ? myName : 'A');
+    drawPlayer(s.a, myColor, mode === 'cpu' ? (p1 || myName) : 'A');
     drawPlayer(s.b, oppColor, mode === 'cpu' ? oppName : 'B');
 
     // pelota
@@ -305,24 +306,63 @@
     ctx.strokeRect(x, GOAL_Y - h / 4, 30, h / 2);
   }
 
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
   function drawPlayer(p, color, label) {
+    const a = Math.atan2(p.dir.y, p.dir.x);
+
     // sombra
-    ctx.beginPath(); ctx.arc(p.x + 2, p.y + 2, P_R, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
-    // cuerpo
+    ctx.beginPath();
+    ctx.ellipse(p.x + 2, p.y + 3, P_R * 0.95, P_R * 0.82, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.fill();
+
+    // brazos hacia la dirección
+    ctx.strokeStyle = color; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const off of [0.5, -0.5]) {
+      const s = a + off;
+      ctx.moveTo(p.x + Math.cos(s) * P_R * 0.65, p.y + Math.sin(s) * P_R * 0.65);
+      ctx.lineTo(p.x + Math.cos(a) * (P_R + 6), p.y + Math.sin(a) * (P_R + 6));
+    }
+    ctx.stroke();
+
+    // cuerpo (camiseta)
     ctx.beginPath(); ctx.arc(p.x, p.y, P_R, 0, Math.PI * 2);
     ctx.fillStyle = color; ctx.fill();
-    ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.stroke();
-    // dirección
-    const a = Math.atan2(p.dir.y, p.dir.x);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2; ctx.stroke();
+
+    // cabeza
+    const hr = P_R * 0.52;
+    ctx.beginPath(); ctx.arc(p.x, p.y, hr, 0, Math.PI * 2);
+    ctx.fillStyle = '#e8b678'; ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // pelo (mitad trasera de la cabeza)
     ctx.beginPath();
-    ctx.moveTo(p.x + Math.cos(a) * P_R, p.y + Math.sin(a) * P_R);
-    ctx.lineTo(p.x + Math.cos(a) * (P_R + 8), p.y + Math.sin(a) * (P_R + 8));
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
-    // etiqueta
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, p.x, p.y);
+    ctx.arc(p.x, p.y, hr, a + Math.PI / 2, a + Math.PI * 1.5);
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fill();
+
+    // etiqueta con nombre
+    if (label) {
+      ctx.font = 'bold 11px sans-serif';
+      const tw = ctx.measureText(label).width;
+      const ty = p.y - P_R - 13;
+      ctx.fillStyle = 'rgba(10,14,20,0.72)';
+      rrect(p.x - tw / 2 - 6, ty - 9, tw + 12, 18, 5);
+      ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, p.x, ty);
+    }
   }
 
   function overlay(txt) {
