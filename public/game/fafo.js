@@ -284,6 +284,7 @@
   let renderer = null, scene = null, camera = null;
   const meshesA = [], meshesB = [];
   let ballMesh = null, ringMesh = null, nameSprite = null;
+  let playerGltf = null, gDt = 0;
 
   const SKIN_TONES = [0xe8b678, 0xf0c8a0, 0xc68e5a, 0x9c6b43, 0x6b4a2f, 0xd8a06a];
   const HAIR_COLORS = [0x1a1208, 0x3a2a1a, 0x5a4030, 0x0f0a05, 0x8a6a3a, 0x2b1f10];
@@ -486,6 +487,51 @@
     return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   }
 
+  function installGLBPlayers() {
+    const gltf = playerGltf;
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const h = box.max.y - box.min.y || 1;
+    const scale = 44 / h;
+    const idle = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
+    const run = gltf.animations.find(c => /run/i.test(c.name)) || idle;
+    const walk = gltf.animations.find(c => /walk/i.test(c.name)) || idle;
+
+    function makeGLBPlayer(color) {
+      const base = THREE.SkeletonUtils.clone(gltf.scene);
+      base.scale.setScalar(scale);
+      base.traverse(o => {
+        if (o.isMesh) {
+          o.material = o.material.clone();
+          o.material.color.lerp(new THREE.Color(color), 0.65);
+          if (o.material.emissive) o.material.emissive.setHex(0x000000);
+          o.castShadow = true; o.receiveShadow = true;
+        }
+      });
+      const mixer = new THREE.AnimationMixer(base);
+      const actions = { idle: mixer.clipAction(idle), run: mixer.clipAction(run), walk: mixer.clipAction(walk) };
+      actions.idle.play();
+      base.userData = { mixer, actions, current: 'idle' };
+      return base;
+    }
+
+    meshesA.forEach(m => scene.remove(m));
+    meshesB.forEach(m => scene.remove(m));
+    meshesA.length = 0; meshesB.length = 0;
+    for (let i = 0; i < 11; i++) {
+      const a = makeGLBPlayer(myColor); scene.add(a); meshesA.push(a);
+      const b = makeGLBPlayer(oppColor); scene.add(b); meshesB.push(b);
+    }
+  }
+
+  function loadGLBPlayers() {
+    if (typeof THREE === 'undefined' || !THREE.GLTFLoader || !THREE.SkeletonUtils) return;
+    const loader = new THREE.GLTFLoader();
+    loader.load('/models/xbot.glb', (gltf) => {
+      playerGltf = gltf;
+      try { installGLBPlayers(); } catch (e) { /* se mantiene el fallback procedural */ }
+    });
+  }
+
   function init3D() {
     if (typeof THREE === 'undefined') {
       hint.textContent = 'No se pudo cargar el motor 3D (Three.js).';
@@ -557,6 +603,8 @@
       scene.add(nameSprite);
     }
 
+    loadGLBPlayers();
+
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -571,6 +619,21 @@
     mesh.rotation.y = Math.atan2(p.dir.x, p.dir.y);
     const speed = Math.hypot(p.vx, p.vy);
     const ud = mesh.userData;
+
+    if (ud.mixer) {
+      // modelo GLB con animaciones
+      const target = speed > 4 ? 'run' : (speed > 0.4 ? 'walk' : 'idle');
+      if (ud.current !== target) {
+        const a = ud.actions[target], b = ud.actions[ud.current];
+        if (a && a !== b) a.reset().play();
+        if (b && b !== a) b.stop();
+        ud.current = target;
+      }
+      ud.mixer.update(gDt);
+      return;
+    }
+
+    // fallback procedural
     const t = performance.now() * 0.012 + ud.phase;
     if (speed > 0.4) {
       const amp = Math.min(1, speed / 5) * 0.7;
@@ -626,6 +689,7 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    gDt = dt;
     if (mode === 'local' || mode === 'cpu' || (mode === 'online' && role === 'host')) {
       step();
       if (mode === 'online' && role === 'host' && socket) {
