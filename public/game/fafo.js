@@ -14,6 +14,9 @@
   const KICK_POWER = 16;
   const KICK_CD = 22;
   const MATCH_TIME = 180;
+  const BOX_DEPTH = 236, BOX_HALF = 279;   // área grande (16.5m × 20.16m)
+  const PEN_SPOT = 157;                     // punto penal (11m)
+  const WALL_DIST = 80;                     // distancia de la barrera
 
   const FORM = [
     { x: 0.05, y: 0.50 },
@@ -34,12 +37,15 @@
       kickCd: 0,
       role: ROLES[i],
       number: i + 1,
+      team: side === 1 ? 'A' : 'B',
+      yellow: 0,
+      sentOff: false,
     }));
   }
 
   function freshState() {
     return {
-      ball: { x: W / 2, y: H / 2, vx: 0, vy: 0 },
+      ball: { x: W / 2, y: H / 2, vx: 0, vy: 0, team: null },
       teamA: makeTeam(1),
       teamB: makeTeam(-1),
       score: { a: 0, b: 0 },
@@ -48,6 +54,12 @@
       started: false,
       over: false,
       winner: null,
+      phase: 'playing',   // 'playing' | 'dead' | 'setpiece'
+      deadT: 0,
+      nextPiece: null,
+      setPiece: null,
+      foulCd: 0,
+      banner: null,
     };
   }
 
@@ -108,6 +120,8 @@
     return { x: x / l, y: y / l };
   }
 
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
   function applyInput(p, inp) {
     const d = norm(inp.x, inp.y);
     if (d.x !== 0 || d.y !== 0) p.dir = { x: d.x, y: d.y };
@@ -129,42 +143,187 @@
     }
     state.ball.vx = ax * KICK_POWER + p.vx * 0.3;
     state.ball.vy = ay * KICK_POWER + p.vy * 0.3;
+    state.ball.team = p.team;
   }
 
   function resetKickoff() {
-    state.ball = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
+    state.ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, team: null };
     [...state.teamA, ...state.teamB].forEach(p => {
-      p.x = p.homeX; p.y = p.homeY; p.vx = 0; p.vy = 0; p.kickCd = 0;
+      if (p.sentOff) { p.x = -300; p.y = -300; p.vx = 0; p.vy = 0; return; }
+      p.x = p.homeX; p.y = p.homeY; p.vx = 0; p.vy = 0; p.kickCd = 0; p.wall = false;
     });
   }
 
+  function banner(text) { state.banner = text; }
+
+  function stopAll() {
+    [...state.teamA, ...state.teamB].forEach(p => { p.vx = 0; p.vy = 0; });
+  }
+
+  function rollCard() {
+    const r = Math.random();
+    if (r < 0.05) return 'red';
+    if (r < 0.28) return 'yellow';
+    return null;
+  }
+
+  function detectFouls() {
+    if (state.foulCd > 0) { state.foulCd--; return; }
+    const ball = state.ball;
+    const owner = ball.team;
+    if (!owner) return;
+    const ownerTeam = owner === 'A' ? state.teamA : state.teamB;
+    const defTeam = owner === 'A' ? state.teamB : state.teamA;
+    for (const d of defTeam) {
+      if (d.sentOff) continue;
+      for (const o of ownerTeam) {
+        if (o.sentOff) continue;
+        if (Math.hypot(ball.x - o.x, ball.y - o.y) > P_R + B_R + 8) continue; // o tiene el balón
+        if (Math.hypot(d.x - o.x, d.y - o.y) > P_R * 1.5) continue;          // d taclea
+        if (Math.random() < 0.007) {
+          callFoul(d, o.x, o.y, rollCard());
+          return;
+        }
+      }
+    }
+  }
+
+  function callFoul(offender, x, y, card) {
+    const victimTeam = offender.team === 'A' ? 'B' : 'A';
+    const attackGoalX = victimTeam === 'A' ? W : 0;
+    const inBox = Math.abs(attackGoalX - x) < BOX_DEPTH && Math.abs(y - GOAL_Y) < BOX_HALF;
+    if (card === 'yellow') {
+      offender.yellow++;
+      if (offender.yellow >= 2) card = 'red';
+    }
+    if (card === 'red') offender.sentOff = true;
+    state.phase = 'dead';
+    state.deadT = card ? 2.6 : 1.8;
+    state.nextPiece = { type: inBox ? 'penalty' : 'freeKick', x: clamp(x, 10, W - 10), y: clamp(y, 10, H - 10), team: victimTeam, card, direct: true };
+    state.foulCd = 150;
+    stopAll();
+    state.ball.vx = 0; state.ball.vy = 0;
+    banner(card === 'red' ? 'TARJETA ROJA' : card === 'yellow' ? 'TARJETA AMARILLA' : (inBox ? '¡PENAL!' : 'FALTA'));
+  }
+
+  function ballOut(type, x, y, team) {
+    state.phase = 'dead';
+    state.deadT = 1.2;
+    state.nextPiece = { type, x, y, team };
+    stopAll();
+    state.ball.vx = 0; state.ball.vy = 0;
+    banner(type === 'throwIn' ? 'SAQUE DE BANDA' : type === 'corner' ? 'CÓRNER' : 'SAQUE DE PUERTA');
+  }
+
+  function buildWall(defTeam, bx, by, n) {
+    const goalX = defTeam === 'A' ? 0 : W;
+    const dx = goalX - bx, dy = GOAL_Y - by;
+    const l = Math.hypot(dx, dy) || 1;
+    const ux = dx / l, uy = dy / l;
+    const cx = bx + ux * WALL_DIST, cy = by + uy * WALL_DIST;
+    const px = -uy, py = ux;
+    const cands = defTeam.filter(p => p.role !== 'GK' && !p.sentOff)
+      .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))
+      .slice(0, n);
+    cands.forEach((p, i) => {
+      const o = (i - (n - 1) / 2) * 26;
+      p.x = clamp(cx + px * o, P_R, W - P_R);
+      p.y = clamp(cy + py * o, P_R, H - P_R);
+      p.vx = 0; p.vy = 0; p.wall = true;
+    });
+  }
+
+  function placeSetPiece(sp) {
+    const ball = state.ball;
+    const team = sp.team === 'A' ? state.teamA : state.teamB;
+    const defs = sp.team === 'A' ? state.teamB : state.teamA;
+    let taker;
+    if (sp.type === 'goalKick') {
+      taker = team.find(p => p.role === 'GK');
+      ball.x = sp.team === 'A' ? 79 : W - 79;
+      ball.y = GOAL_Y;
+    } else if (sp.type === 'penalty') {
+      taker = team.filter(p => !p.sentOff).sort((a, b) => (a.role === 'GK' ? 1 : 0) - (b.role === 'GK' ? 1 : 0))[0];
+      ball.x = sp.team === 'A' ? W - PEN_SPOT : PEN_SPOT;
+      ball.y = GOAL_Y;
+    } else {
+      taker = team.filter(p => p.role !== 'GK' && !p.sentOff)
+        .sort((a, b) => Math.hypot(a.x - ball.x, a.y - ball.y) - Math.hypot(b.x - ball.x, b.y - ball.y))[0];
+    }
+    sp.x = ball.x; sp.y = ball.y;
+    sp.taker = taker;
+    if (taker) { taker.x = ball.x; taker.y = ball.y; taker.vx = 0; taker.vy = 0; taker.kickCd = 0; }
+    if (sp.type === 'freeKick' && sp.direct) buildWall(defs, ball.x, ball.y, 4);
+    stopAll();
+  }
+
+  function startSetPiece(piece) {
+    state.phase = 'setpiece';
+    state.setPiece = { ...piece, t: 0, taken: false };
+    [...state.teamA, ...state.teamB].forEach(p => { p.wall = false; });
+    placeSetPiece(state.setPiece);
+  }
+
+  function resumePlay() {
+    state.phase = 'playing';
+    state.setPiece = null;
+    state.banner = null;
+    [...state.teamA, ...state.teamB].forEach(p => { p.wall = false; });
+  }
+
+  function updateSetPiece() {
+    const sp = state.setPiece;
+    if (!sp) return;
+    sp.t += 1 / 60;
+    let input = null;
+    if (sp.team === 'A') input = inputA();
+    else if (mode === 'local') input = inputB();
+    else if (mode === 'online' && role === 'host') input = remoteInput;
+    // en modo cpu el equipo B lo toma la IA (input queda null)
+
+    if (input) {
+      if (sp.taker && (input.x !== 0 || input.y !== 0)) sp.taker.dir = norm(input.x, input.y);
+      if (input.kick && sp.taker) {
+        const goalX = sp.team === 'A' ? W : 0;
+        kickBall(sp.taker, goalX);
+        resumePlay();
+      } else if (sp.t >= 7 && sp.taker) {
+        // fallback: si el humano no patea, la IA toma el saque
+        const goalX = sp.team === 'A' ? W : 0;
+        sp.taker.dir = norm(goalX - sp.taker.x, GOAL_Y - sp.taker.y);
+        kickBall(sp.taker, goalX);
+        resumePlay();
+      }
+    } else if (sp.t >= 1.5 && sp.taker && !sp.taken) {
+      sp.taken = true;
+      const goalX = sp.team === 'A' ? W : 0;
+      sp.taker.dir = norm(goalX - sp.taker.x, GOAL_Y - sp.taker.y);
+      kickBall(sp.taker, goalX);
+      resumePlay();
+    }
+  }
+
   function physics() {
+    if (state.phase === 'dead') return;
     const ball = state.ball;
     ball.x += ball.vx;
     ball.y += ball.vy;
     ball.vx *= BALL_FRICTION;
     ball.vy *= BALL_FRICTION;
 
-    if (ball.y < B_R) { ball.y = B_R; ball.vy = -ball.vy * 0.8; }
-    if (ball.y > H - B_R) { ball.y = H - B_R; ball.vy = -ball.vy * 0.8; }
-
-    const inMouth = Math.abs(ball.y - GOAL_Y) < GOAL_HALF;
-    if (!inMouth) {
-      if (ball.x < B_R) { ball.x = B_R; ball.vx = -ball.vx * 0.8; }
-      if (ball.x > W - B_R) { ball.x = W - B_R; ball.vx = -ball.vx * 0.8; }
-    }
-
     const all = [...state.teamA, ...state.teamB];
     all.forEach(p => {
+      if (p.sentOff) return;
       p.x += p.vx; p.y += p.vy;
       p.vx *= FRICTION; p.vy *= FRICTION;
       if (Math.hypot(p.vx, p.vy) < 0.05) { p.vx = 0; p.vy = 0; }
-      p.x = Math.max(P_R, Math.min(W - P_R, p.x));
-      p.y = Math.max(P_R, Math.min(H - P_R, p.y));
+      p.x = clamp(p.x, P_R, W - P_R);
+      p.y = clamp(p.y, P_R, H - P_R);
       if (p.kickCd > 0) p.kickCd--;
     });
 
     all.forEach(p => {
+      if (p.sentOff) return;
       const dx = ball.x - p.x, dy = ball.y - p.y;
       const d = Math.hypot(dx, dy);
       const min = P_R + B_R;
@@ -175,26 +334,52 @@
         const rel = Math.max(0, p.vx * nx + p.vy * ny);
         ball.vx += nx * rel * 0.9 + nx * 1.2;
         ball.vy += ny * rel * 0.9 + ny * 1.2;
+        ball.team = p.team;
       }
     });
 
-    if (ball.x < 0 && inMouth) goal('b');
-    if (ball.x > W && inMouth) goal('a');
+    if (state.phase !== 'playing') return;
+
+    detectFouls();
+
+    const inMouth = Math.abs(ball.y - GOAL_Y) < GOAL_HALF;
+
+    if (ball.y < B_R) { ballOut('throwIn', clamp(ball.x, 10, W - 10), 0, ball.team === 'A' ? 'B' : 'A'); return; }
+    if (ball.y > H - B_R) { ballOut('throwIn', clamp(ball.x, 10, W - 10), H, ball.team === 'A' ? 'B' : 'A'); return; }
+
+    if (ball.x < 0) {
+      if (inMouth) { goal('b'); return; }
+      const cy = ball.y < GOAL_Y ? 0 : H;
+      if (ball.team === 'A') ballOut('corner', 0, cy, 'B');
+      else ballOut('goalKick', 0, ball.y, 'A');
+      return;
+    }
+    if (ball.x > W) {
+      if (inMouth) { goal('a'); return; }
+      const cy = ball.y < GOAL_Y ? 0 : H;
+      if (ball.team === 'B') ballOut('corner', W, cy, 'A');
+      else ballOut('goalKick', W, ball.y, 'B');
+      return;
+    }
   }
 
   function goal(team) {
     state.score[team]++;
     resetKickoff();
     state.countdown = 1.5;
+    state.phase = 'playing';
+    state.setPiece = null;
+    state.banner = null;
   }
 
   function nearestIndex(team, ball) {
-    let ni = 0, nd = Infinity;
+    let ni = -1, nd = Infinity;
     for (let i = 0; i < team.length; i++) {
+      if (team[i].sentOff) continue;
       const d = Math.hypot(ball.x - team[i].x, ball.y - team[i].y);
       if (d < nd) { nd = d; ni = i; }
     }
-    return ni;
+    return ni < 0 ? 0 : ni;
   }
 
   function teamControl(team, side, human, ball) {
@@ -204,6 +389,7 @@
 
     for (let i = 0; i < team.length; i++) {
       const p = team[i];
+      if (p.sentOff || p.wall) continue;
 
       if (human && i === nearest) {
         applyInput(p, human);
@@ -252,6 +438,17 @@
     if (state.countdown > 0) {
       state.countdown -= 1 / 60;
       if (state.countdown <= 0) state.countdown = 0;
+      return;
+    }
+
+    if (state.phase === 'dead') {
+      state.deadT -= 1 / 60;
+      if (state.deadT <= 0) startSetPiece(state.nextPiece);
+      return;
+    }
+
+    if (state.phase === 'setpiece') {
+      updateSetPiece();
       return;
     }
 
@@ -687,6 +884,9 @@
 
     if (s.countdown > 0) {
       overlayEl.textContent = String(Math.ceil(s.countdown));
+      overlayEl.style.display = 'flex';
+    } else if (s.banner && (s.phase === 'dead' || s.phase === 'setpiece')) {
+      overlayEl.textContent = s.banner;
       overlayEl.style.display = 'flex';
     } else if (s.over) {
       overlayEl.textContent = s.winner === 'draw' ? 'EMPATE'
