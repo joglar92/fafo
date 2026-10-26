@@ -59,6 +59,7 @@
   const oppName = qs.get('opp') || 'Rojo';
   const oppColor = qs.get('oppColor') || '#ff6b6b';
   const oppId = qs.get('oppId') || null;
+  const comp = qs.get('comp') || 'league';
 
   const keys = {};
 
@@ -346,7 +347,7 @@
     }
     if (mode === 'cpu' && CAREER && state.over && !reported) {
       reported = true;
-      localStorage.setItem('fafo_career_pending', JSON.stringify({ myGoals: state.score.a, oppGoals: state.score.b, oppId: oppId }));
+      localStorage.setItem('fafo_career_pending', JSON.stringify({ myGoals: state.score.a, oppGoals: state.score.b, oppId: oppId, comp: comp }));
       const h = document.getElementById('hint');
       h.innerHTML = '<a href="/career.html" style="color:#3fb950;font-weight:700;text-decoration:underline;font-size:15px">← Volver al Modo Carrera</a>';
       h.style.pointerEvents = 'auto';

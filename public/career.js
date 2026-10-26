@@ -14,6 +14,7 @@
   let teams = [];
   let teamsById = {};
   let state = null;
+  let currentTab = 'home';
 
   const $ = (s) => document.querySelector(s);
 
@@ -34,6 +35,20 @@
     return teamId === 'me' ? teamRating() : teamsById[teamId].strength;
   }
 
+  // ---- progresión ----
+  function xpForLevel(l) { return l * 100; }
+  function addXP(n) {
+    state.xp += n;
+    while (state.xp >= xpForLevel(state.level)) {
+      state.xp -= xpForLevel(state.level);
+      state.level++;
+      state.gems += 5; // recompensa por subir de nivel
+    }
+  }
+  function addCoins(n) { state.coins += n; }
+  function addGems(n) { state.gems += n; }
+  function addMoney(m) { state.budget = Math.round((state.budget + m) * 10) / 10; }
+
   // ---- simulación de partido ----
   function simMatch(a, b) {
     const diff = a - b;
@@ -42,7 +57,7 @@
     return [ag, bg];
   }
 
-  // ---- fixture round-robin ----
+  // ---- liga (round-robin) ----
   function roundRobin(ids) {
     const t = ids.slice();
     const n = t.length, half = n / 2, rounds = [];
@@ -78,11 +93,7 @@
     return f ? (f[0] === 'me' ? f[1] : f[0]) : null;
   }
 
-  function addMoney(m) { state.budget = Math.round((state.budget + m) * 10) / 10; }
-
-  // ---- resolver una fecha ----
   function playRound(myGoals, oppGoals) {
-    const oppId = currentOpponent();
     const round = state.season.rounds[state.season.round];
     round.forEach(([a, b]) => {
       if (a === 'me' || b === 'me') {
@@ -94,12 +105,61 @@
         applyFixture(a, b, g1, g2);
       }
     });
-    if (myGoals > oppGoals) addMoney(5);
-    else if (myGoals === oppGoals) addMoney(2);
-    else addMoney(0.5);
+    if (myGoals > oppGoals) { addMoney(5); addXP(80); addCoins(300); }
+    else if (myGoals === oppGoals) { addMoney(2); addXP(40); addCoins(150); }
+    else { addMoney(0.5); addXP(15); addCoins(50); }
     state.season.round++;
-    save();
-    render();
+    save(); render();
+  }
+
+  // ---- copa (eliminación directa) ----
+  function newCup() {
+    const ids = ['me', ...teams.map(t => t.id)].sort(() => Math.random() - 0.5);
+    return { teams: ids, champion: null, results: [] };
+  }
+
+  function cupPairs() {
+    const p = [];
+    for (let i = 0; i < state.cup.teams.length; i += 2) p.push([state.cup.teams[i], state.cup.teams[i + 1]]);
+    return p;
+  }
+
+  function currentCupOpponent() {
+    if (!state.cup || state.cup.champion) return null;
+    if (!state.cup.teams.includes('me')) return null;
+    const pair = cupPairs().find(([a, b]) => a === 'me' || b === 'me');
+    return pair ? (pair[0] === 'me' ? pair[1] : pair[0]) : null;
+  }
+
+  function playCupRound(myGoals, oppGoals) {
+    const winners = [];
+    let iWon = false;
+    cupPairs().forEach(([a, b]) => {
+      let g1, g2;
+      if (a === 'me' || b === 'me') {
+        const mine = a === 'me' ? myGoals : oppGoals;
+        const theirs = a === 'me' ? oppGoals : myGoals;
+        g1 = a === 'me' ? mine : theirs;
+        g2 = a === 'me' ? theirs : mine;
+      } else {
+        [g1, g2] = simMatch(strength(a), strength(b));
+      }
+      let winner;
+      if (g1 > g2) winner = a;
+      else if (g1 < g2) winner = b;
+      else winner = Math.random() < 0.5 ? a : b; // penales
+      state.cup.results.push({ a, b, g1, g2, winner });
+      winners.push(winner);
+      if (winner === 'me') iWon = true;
+    });
+    state.cup.teams = winners;
+    addXP(100); addCoins(500);
+    if (iWon) addGems(5);
+    if (winners.length === 1) {
+      state.cup.champion = winners[0];
+      if (winners[0] === 'me') { addGems(30); addCoins(2000); }
+    }
+    save(); render();
   }
 
   // ---- guardar/cargar ----
@@ -108,10 +168,10 @@
 
   function newSeason() {
     const ids = ['me', ...teams.map(t => t.id)];
-    return { round: 0, rounds: roundRobin(ids), standings: initStandings(), history: [] };
+    return { round: 0, rounds: roundRobin(ids), standings: initStandings() };
   }
 
-  // ---- render ----
+  // ---- helpers render ----
   function ratingColor(r) {
     if (r >= 85) return '#2ea043';
     if (r >= 78) return '#1f6feb';
@@ -125,11 +185,60 @@
     return `<span class="pos-tag" style="background:${colors[p.pos]}22;color:${colors[p.pos]}">${map[p.pos]}</span>`;
   }
 
+  function matchCard(comp, opp, label) {
+    return `
+      <div class="match-card">
+        <h4>${label}</h4>
+        <div class="vs"><span style="color:${state.clubColor}">${state.clubName}</span> vs <span style="color:${opp.color}">${opp.name}</span></div>
+        <div class="match-actions">
+          <button class="btn primary" data-play="${comp}">▶ Jugar</button>
+          <button class="btn secondary" data-sim="${comp}">Simular</button>
+        </div>
+      </div>`;
+  }
+
+  // ---- render de tabs ----
+  function renderHome() {
+    const overall = teamRating();
+    const st = state.season.standings['me'];
+    const leagueOppId = currentOpponent();
+    const cupOppId = currentCupOpponent();
+    const leagueDone = state.season.round >= state.season.rounds.length;
+    const cupDone = !state.cup || !!state.cup.champion;
+
+    let html = `
+      <div class="overall-card">
+        <div class="big-rating" style="color:${ratingColor(overall)}">${overall}</div>
+        <div class="home-name">${state.clubName}</div>
+        <div class="record">${st.w} G · ${st.d} E · ${st.l} P</div>
+      </div>`;
+
+    if (!leagueDone && leagueOppId) {
+      html += matchCard('league', teamsById[leagueOppId], 'Liga · Fecha ' + (state.season.round + 1) + '/' + state.season.rounds.length);
+    }
+    if (!cupDone && cupOppId) {
+      html += matchCard('cup', teamsById[cupOppId], 'Copa · ' + (state.cup.teams.length > 2 ? 'Eliminatoria' : 'Final'));
+    }
+    if (leagueDone && cupDone) {
+      html += `<div class="season-done"><h2>🏆 Temporada completa</h2>
+        <p style="color:var(--muted);margin-top:6px">Campeón de liga: <b>${Object.values(state.season.standings).sort((a,b)=>b.pts-a.pts)[0].name}</b><br>
+        ${state.cup && state.cup.champion ? 'Campeón de copa: <b>' + (state.cup.champion === 'me' ? state.clubName : teamsById[state.cup.champion].name) + '</b>' : ''}</p>
+        <button class="btn primary" id="btnReset" style="margin-top:14px">Nueva temporada</button></div>`;
+    }
+
+    $('#content').innerHTML = html;
+    wireMatchActions();
+    if (leagueDone && cupDone) $('#btnReset').addEventListener('click', () => {
+      state.season = newSeason();
+      state.cup = newCup();
+      save(); render();
+    });
+  }
+
   function renderTeam() {
-    const el = $('#tab-team');
     const sorted = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating);
     const overall = teamRating();
-    el.innerHTML = `
+    $('#content').innerHTML = `
       <p class="overall">Plantel: ${state.squad.length} jugadores · Media titular: <b style="color:${ratingColor(overall)}">${overall}</b></p>
       <div class="player-list">
         ${sorted.map(p => `
@@ -139,18 +248,17 @@
               <div class="name">${p.name} ${posTag(p)}</div>
               <div class="meta">${p.nation} · ${p.age} años · $${playerValue(p)}M</div>
             </div>
-            <button class="btn small sell" data-sell="${p.id}">Vender</button>
+            <button class="btn sell" data-sell="${p.id}">Vender</button>
           </div>`).join('')}
       </div>`;
-    el.querySelectorAll('[data-sell]').forEach(b => b.addEventListener('click', () => sellPlayer(b.dataset.sell)));
+    $('#content').querySelectorAll('[data-sell]').forEach(b => b.addEventListener('click', () => sellPlayer(b.dataset.sell)));
   }
 
   function renderMarket() {
-    const el = $('#tab-market');
     const inSquad = new Set(state.squad);
     const market = players.filter(p => !inSquad.has(p.id)).sort((a, b) => b.rating - a.rating);
-    el.innerHTML = `
-      <p class="overall">Presupuesto: <b>$<span id="mktBudget">${state.budget}</span>M</b> · ${market.length} jugadores disponibles</p>
+    $('#content').innerHTML = `
+      <p class="overall">Presupuesto: <b>$${state.budget}M</b> · ${market.length} jugadores disponibles</p>
       <div class="player-list">
         ${market.map(p => {
           const v = playerValue(p);
@@ -161,38 +269,18 @@
               <div class="name">${p.name} ${posTag(p)}</div>
               <div class="meta">${p.nation} · ${p.age} años</div>
             </div>
-            <div style="font-weight:700;margin-right:10px">$${v}M</div>
-            <button class="btn small buy" data-buy="${p.id}" ${can ? '' : 'disabled'}>Fichar</button>
+            <div style="font-weight:700;margin-right:8px">$${v}M</div>
+            <button class="btn buy" data-buy="${p.id}" ${can ? '' : 'disabled'}>Fichar</button>
           </div>`;
         }).join('')}
       </div>`;
-    el.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buyPlayer(b.dataset.buy)));
+    $('#content').querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buyPlayer(b.dataset.buy)));
   }
 
   function renderLeague() {
-    const el = $('#tab-league');
-    const oppId = currentOpponent();
-    const opp = oppId ? teamsById[oppId] : null;
     const rows = Object.values(state.season.standings).sort((a, b) => b.pts - a.pts || (b.gf - b.gc) - (a.gf - a.gc));
-
-    let matchCard = '';
-    if (state.season.round >= state.season.rounds.length) {
-      const champ = rows[0];
-      matchCard = `<div class="season-done"><h2>🏆 Temporada terminada</h2><p style="color:var(--muted);margin-top:8px">Campeón: <b>${champ.name}</b></p>
-        <button class="btn primary" id="btnReset" style="width:auto;margin-top:16px">Nueva temporada</button></div>`;
-    } else if (opp) {
-      matchCard = `
-        <div class="match-card">
-          <h3>Fecha ${state.season.round + 1} de ${state.season.rounds.length}</h3>
-          <div class="vs"><span style="color:${state.clubColor}">${state.clubName}</span> vs <span style="color:${opp.color}">${opp.name}</span></div>
-          <div class="match-actions">
-            <button class="btn primary" id="btnPlay" style="width:auto">▶ Jugar</button>
-            <button class="btn" id="btnSim" style="width:auto;background:var(--accent2)">Simular</button>
-          </div>
-        </div>`;
-    }
-
-    el.innerHTML = matchCard + `
+    $('#content').innerHTML = `
+      <p class="overall">Liga · ${Math.min(state.season.round, state.season.rounds.length)}/${state.season.rounds.length} fechas jugadas</p>
       <table>
         <thead><tr><th>#</th><th>Equipo</th><th class="num">PJ</th><th class="num">G</th><th class="num">E</th><th class="num">P</th><th class="num">GF</th><th class="num">GC</th><th class="num">Pts</th></tr></thead>
         <tbody>
@@ -205,15 +293,44 @@
             </tr>`).join('')}
         </tbody>
       </table>`;
+  }
 
-    if (state.season.round < state.season.rounds.length) {
-      $('#btnPlay').addEventListener('click', () => startMatch());
-      $('#btnSim').addEventListener('click', () => {
-        const [g1, g2] = simMatch(strength('me'), opp.strength);
-        playRound(g1, g2);
-      });
+  function renderCup() {
+    if (!state.cup) state.cup = newCup();
+    let html = '';
+    if (state.cup.champion) {
+      const champ = state.cup.champion === 'me' ? state.clubName : teamsById[state.cup.champion].name;
+      html += `<div class="season-done"><h2>🥇 Copa terminada</h2><p style="color:var(--muted);margin-top:6px">Campeón: <b>${champ}</b></p></div>`;
+    } else if (state.cup.teams.includes('me')) {
+      html += `<p class="overall">${state.cup.teams.length} equipos en carrera</p>`;
+      html += `<div class="bracket">` + cupPairs().map(([a, b]) => {
+        const na = a === 'me' ? state.clubName : teamsById[a].name;
+        const nb = b === 'me' ? state.clubName : teamsById[b].name;
+        const ca = a === 'me' ? state.clubColor : teamsById[a].color;
+        const cb = b === 'me' ? state.clubColor : teamsById[b].color;
+        return `<div class="tie"><span style="color:${ca}">${na}</span><span>vs</span><span style="color:${cb}">${nb}</span></div>`;
+      }).join('') + `</div>`;
+      if (state.cup.teams.length === 2) html += `<p class="overall" style="margin-top:8px">⚡ Final de la copa</p>`;
     } else {
-      $('#btnReset').addEventListener('click', () => { state.season = newSeason(); save(); render(); });
+      html += `<div class="season-done"><h2>Eliminado de la Copa</h2><p style="color:var(--muted);margin-top:6px">La copa sigue sin vos. Mejor suerte la próxima.</p></div>`;
+    }
+    $('#content').innerHTML = html;
+  }
+
+  function wireMatchActions() {
+    $('#content').querySelectorAll('[data-play]').forEach(b => b.addEventListener('click', () => startMatch(b.dataset.play)));
+    $('#content').querySelectorAll('[data-sim]').forEach(b => b.addEventListener('click', () => simClick(b.dataset.sim)));
+  }
+
+  function simClick(comp) {
+    if (comp === 'cup') {
+      const opp = teamsById[currentCupOpponent()];
+      const [g1, g2] = simMatch(strength('me'), opp.strength);
+      playCupRound(g1, g2);
+    } else {
+      const opp = teamsById[currentOpponent()];
+      const [g1, g2] = simMatch(strength('me'), opp.strength);
+      playRound(g1, g2);
     }
   }
 
@@ -221,11 +338,17 @@
     $('#badge').textContent = state.clubName.charAt(0).toUpperCase();
     $('#badge').style.background = state.clubColor;
     $('#clubTitle').textContent = state.clubName;
-    $('#clubInfo').textContent = `Media: ${teamRating()} · Plantel ${state.squad.length} · Temporada ${state.season.round + 1}/${state.season.rounds.length}`;
-    $('#budget').textContent = state.budget;
-    renderTeam();
-    renderMarket();
-    renderLeague();
+    $('#level').textContent = state.level;
+    $('#xpFill').style.width = Math.min(100, Math.round(state.xp / xpForLevel(state.level) * 100)) + '%';
+    $('#coins').textContent = state.coins;
+    $('#gems').textContent = state.gems;
+    switch (currentTab) {
+      case 'team': renderTeam(); break;
+      case 'market': renderMarket(); break;
+      case 'league': renderLeague(); break;
+      case 'cup': renderCup(); break;
+      default: renderHome();
+    }
   }
 
   // ---- acciones ----
@@ -241,23 +364,18 @@
 
   function sellPlayer(id) {
     if (state.squad.length <= MIN_SQUAD) return alert('Necesitás al menos ' + MIN_SQUAD + ' jugadores');
-    const p = playersById[id];
-    const v = playerValue(p);
+    const v = playerValue(playersById[id]);
     state.squad = state.squad.filter(x => x !== id);
     addMoney(v);
     save(); render();
   }
 
-  function startMatch() {
-    const oppId = currentOpponent();
+  function startMatch(comp) {
+    const oppId = comp === 'cup' ? currentCupOpponent() : currentOpponent();
     const opp = teamsById[oppId];
     const params = new URLSearchParams({
-      mode: 'career',
-      me: state.clubName,
-      meColor: state.clubColor,
-      opp: opp.name,
-      oppColor: opp.color,
-      oppId: opp.id
+      mode: 'career', me: state.clubName, meColor: state.clubColor,
+      opp: opp.name, oppColor: opp.color, oppId: opp.id, comp: comp
     });
     window.location.href = '/game/fafo.html?' + params.toString();
   }
@@ -267,29 +385,32 @@
     if (!raw || !state) return;
     localStorage.removeItem(PENDING_KEY);
     const pend = JSON.parse(raw);
-    if (state.season.round >= state.season.rounds.length) { save(); return; }
-    const oppId = currentOpponent();
-    if (pend.oppId && oppId && pend.oppId === oppId) {
-      playRound(pend.myGoals, pend.oppGoals);
+    if (pend.comp === 'cup') {
+      if (currentCupOpponent() && pend.oppId === currentCupOpponent()) playCupRound(pend.myGoals, pend.oppGoals);
+      else render();
+    } else {
+      if (state.season.round < state.season.rounds.length && pend.oppId === currentOpponent()) playRound(pend.myGoals, pend.oppGoals);
+      else render();
     }
   }
 
   // ---- setup ----
-  function showSetup() { $('#setup').style.display = 'block'; $('#dash').style.display = 'none'; }
-  function showDash() { $('#setup').style.display = 'none'; $('#dash').style.display = 'block'; }
+  function showSetup() { $('#setup').style.display = 'flex'; $('#dash').style.display = 'none'; }
+  function showDash() { $('#setup').style.display = 'none'; $('#dash').style.display = 'flex'; }
 
   function createClub() {
     const name = $('#clubName').value.trim();
     const color = selectedColor;
     if (!name) { alert('Poné un nombre'); return; }
     state = {
-      clubName: name,
-      clubColor: color,
+      clubName: name, clubColor: color,
       budget: START_BUDGET,
+      level: 1, xp: 0, coins: 500, gems: 10,
       squad: INITIAL_SQUAD.slice(),
-      season: null
+      season: null, cup: null
     };
     state.season = newSeason();
+    state.cup = newCup();
     save();
     showDash();
     render();
@@ -306,7 +427,6 @@
     playersById = Object.fromEntries(players.map(p => [p.id, p]));
     teamsById = Object.fromEntries(teams.map(t => [t.id, t]));
 
-    // paleta
     $('#colors').innerHTML = PALETTE.map(c =>
       `<div class="swatch${c === selectedColor ? ' sel' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
     $('#colors').querySelectorAll('.swatch').forEach(s => s.addEventListener('click', () => {
@@ -317,17 +437,17 @@
     $('#btnCreate').addEventListener('click', createClub);
     $('#clubName').addEventListener('keydown', e => { if (e.key === 'Enter') createClub(); });
 
-    // tabs
-    document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
-      document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
-      const tab = b.dataset.tab;
-      $('#tab-team').style.display = tab === 'team' ? 'block' : 'none';
-      $('#tab-market').style.display = tab === 'market' ? 'block' : 'none';
-      $('#tab-league').style.display = tab === 'league' ? 'block' : 'none';
+    document.querySelectorAll('.navbar button').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('.navbar button').forEach(x => x.classList.toggle('active', x === b));
+      currentTab = b.dataset.tab;
+      render();
     }));
 
     state = load();
     if (state) {
+      // migración: si falta campo de la versión anterior
+      if (state.cup === undefined) state.cup = newCup();
+      if (state.level === undefined) { state.level = 1; state.xp = 0; state.coins = 500; state.gems = 10; }
       showDash();
       render();
       applyPending();
