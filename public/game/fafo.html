@@ -66,6 +66,13 @@
       text-shadow: 0 4px 24px rgba(0,0,0,.7);
       background: rgba(0,0,0,.45);
     }
+
+    #ver {
+      position: fixed; bottom: 6px; left: 8px; z-index: 20;
+      color: #fff; font-size: 11px; font-weight: 700;
+      background: rgba(0,0,0,.6); padding: 2px 7px; border-radius: 6px;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -94,11 +101,12 @@
   </div>
   <div id="hint" style="display:none"></div>
   <div id="overlay"></div>
+  <div id="ver">v3</div>
 
-  <script src="/lib/three.min.js"></script>
-  <script src="/lib/GLTFLoader.js"></script>
-  <script src="/lib/SkeletonUtils.js"></script>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/game/fafo.js"></script>
+  <script src="/lib/three.min.js?v=3"></script>
+  <script src="/lib/GLTFLoader.js?v=3"></script>
+  <script src="/lib/SkeletonUtils.js?v=3"></script>
+  <script src="/socket.io/socket.io.js?v=3"></script>
+  <script src="/game/fafo.js?v=3"></script>
 </body>
 </html>

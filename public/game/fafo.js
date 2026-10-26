@@ -491,7 +491,8 @@
     const gltf = playerGltf;
     const box = new THREE.Box3().setFromObject(gltf.scene);
     const h = box.max.y - box.min.y || 1;
-    const scale = 16 / h;   // alto objetivo ~16 unidades (venían muy grandes: 44 -> 26 -> 16)
+    const raw = 16 / h;
+    const scale = Math.min(20, Math.max(4, raw));  // alto ~16, con tope para que nunca salga gigante
     const idle = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
     const run = gltf.animations.find(c => /run/i.test(c.name)) || idle;
     const walk = gltf.animations.find(c => /walk/i.test(c.name)) || idle;
