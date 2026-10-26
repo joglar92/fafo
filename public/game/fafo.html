@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAFO Fútbol</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body { overflow: hidden; }
+    #lobby {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(13,17,23,.96);
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      width: min(440px, 92vw);
+      text-align: center;
+    }
+    .panel h2 { margin-bottom: 4px; }
+    .panel .sub { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+    .btn {
+      display: block; width: 100%;
+      background: var(--accent2); color: #fff; border: none;
+      font-size: 16px; font-weight: 700; padding: 13px;
+      border-radius: 10px; cursor: pointer; margin-bottom: 10px;
+    }
+    .btn.primary { background: var(--accent); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .row input {
+      flex: 1; background: #0b0f14; border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 12px;
+      font-size: 18px; text-align: center; letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+    #code { font-size: 30px; letter-spacing: 6px; font-weight: 800; color: #3fb950; margin: 12px 0; }
+    #status { color: var(--muted); font-size: 14px; margin-top: 8px; min-height: 20px; }
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: center; gap: 18px;
+      padding: 10px; font-weight: 800; font-size: 18px; pointer-events: none;
+      z-index: 5;
+    }
+    #hud .score { background: var(--card); border: 1px solid var(--border); padding: 6px 18px; border-radius: 10px; }
+    #hud .clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+    #hint {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      text-align: center; color: var(--muted); font-size: 13px;
+      padding: 8px; z-index: 5; pointer-events: none;
+    }
+    canvas { display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="lobby">
+    <div class="panel">
+      <h2>⚽ FAFO Fútbol</h2>
+      <div class="sub">Elegí cómo querés jugar</div>
+      <button class="btn primary" id="btnLocal">🎮 2 jugadores (misma PC)</button>
+      <button class="btn" id="btnHost">🌐 Crear sala online</button>
+      <div class="row" style="margin-top:12px">
+        <input id="joinCode" placeholder="CÓDIGO" maxlength="5" autocomplete="off">
+        <button class="btn" id="btnJoin" style="width:auto; margin:0">Unirse</button>
+      </div>
+      <div id="code"></div>
+      <button class="btn primary" id="btnStart" style="display:none">▶ Comenzar</button>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div id="hud" style="display:none">
+    <div class="score" id="scoreA">0</div>
+    <div class="clock" id="clock">2:00</div>
+    <div class="score" id="scoreB">0</div>
+  </div>
+  <div id="hint" style="display:none"></div>
+
+  <canvas id="game"></canvas>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/game/fafo.js"></script>
+</body>
+</html>
