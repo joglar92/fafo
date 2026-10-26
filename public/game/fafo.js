@@ -4,7 +4,7 @@
   const W = 1500, H = 940;
 
   // ---- constantes ----
-  const P_R = 14, B_R = 9;
+  const P_R = 14, B_R = 7;
   const GOAL_HALF = 140;
   const GOAL_Y = H / 2;
   const FRICTION = 0.90;
@@ -491,7 +491,7 @@
     const gltf = playerGltf;
     const box = new THREE.Box3().setFromObject(gltf.scene);
     const h = box.max.y - box.min.y || 1;
-    const scale = 26 / h;   // alto objetivo ~26 unidades (antes 44 = muy grande)
+    const scale = 16 / h;   // alto objetivo ~16 unidades (venían muy grandes: 44 -> 26 -> 16)
     const idle = gltf.animations.find(c => /idle/i.test(c.name)) || gltf.animations[0];
     const run = gltf.animations.find(c => /run/i.test(c.name)) || idle;
     const walk = gltf.animations.find(c => /walk/i.test(c.name)) || idle;
@@ -670,7 +670,7 @@
     const ca = nearestIndex(s.teamA, s.ball);
     const controlled = s.teamA[ca];
     ringMesh.position.set(tx(controlled.x), 0.7, tz(controlled.y));
-    if (nameSprite) nameSprite.position.set(tx(controlled.x), 60, tz(controlled.y));
+    if (nameSprite) nameSprite.position.set(tx(controlled.x), 30, tz(controlled.y));
 
     scoreA.textContent = (mode === 'cpu' ? myName + ' ' : '') + s.score.a;
     scoreB.textContent = s.score.b + (mode === 'cpu' ? ' ' + oppName : '');
