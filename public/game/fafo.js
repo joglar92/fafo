@@ -5,7 +5,7 @@
 
   // ---- constantes ----
   const P_R = 14, B_R = 7;
-  const GOAL_HALF = 140;
+  const GOAL_HALF = 50;   // arco real 7.32m sobre cancha de 68m => 10.7% del ancho
   const GOAL_Y = H / 2;
   const FRICTION = 0.90;
   const ACC = 0.62;
@@ -314,10 +314,17 @@
     g.lineWidth = 5;
     g.strokeRect(15, 15, W - 30, H - 30);
     g.beginPath(); g.moveTo(W / 2, 15); g.lineTo(W / 2, H - 15); g.stroke();
-    g.beginPath(); g.arc(W / 2, H / 2, 100, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(W / 2, H / 2, 131, 0, Math.PI * 2); g.stroke();   // círculo central 9.15m
     g.beginPath(); g.arc(W / 2, H / 2, 8, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill();
-    const box = (x) => { g.strokeRect(x, H / 2 - 140, 130, 280); g.strokeRect(x, H / 2 - 65, 48, 130); };
-    box(15); box(W - 145);
+    // áreas con proporciones reales: grande 40.32m × 16.5m, chica 18.32m × 5.5m
+    const box = (goalX, dir) => {
+      const x0 = Math.min(goalX, goalX + dir * 236);
+      g.strokeRect(x0, H / 2 - 279, 236, 557);
+      g.strokeRect(goalX + (dir > 0 ? 0 : -79), H / 2 - 127, 79, 253);
+      g.beginPath(); g.arc(goalX + dir * 157, H / 2, 8, 0, Math.PI * 2);   // punto penal 11m
+      g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill();
+    };
+    box(15, 1); box(W - 15, -1);
     return new THREE.CanvasTexture(c);
   }
 
@@ -470,11 +477,11 @@
     const g = new THREE.Group();
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
     const net = new THREE.MeshStandardMaterial({ color: 0xdddddd, transparent: true, opacity: 0.35, side: THREE.DoubleSide, roughness: 1 });
-    const half = GOAL_HALF, h = 65;
-    const postG = new THREE.CylinderGeometry(4, 4, h, 12);
+    const half = GOAL_HALF, h = 34;   // alto real 2.44m
+    const postG = new THREE.CylinderGeometry(3, 3, h, 12);
     const p1 = new THREE.Mesh(postG, white); p1.position.set(cx, h / 2, -half); g.add(p1);
     const p2 = new THREE.Mesh(postG, white); p2.position.set(cx, h / 2, half); g.add(p2);
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, half * 2, 12), white);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, half * 2, 12), white);
     bar.rotation.x = Math.PI / 2; bar.position.set(cx, h, 0); g.add(bar);
     const dir = cx < 0 ? -1 : 1;
     const netBox = new THREE.Mesh(new THREE.BoxGeometry(36, h, half * 2), net);
