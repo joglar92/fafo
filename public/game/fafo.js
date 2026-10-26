@@ -4,22 +4,45 @@
   const W = 1000, H = 640;
 
   // ---- constantes ----
-  const P_R = 16, B_R = 8;
-  const GOAL_HALF = 100;
+  const P_R = 14, B_R = 8;
+  const GOAL_HALF = 110;
   const GOAL_Y = H / 2;
   const FRICTION = 0.90;
-  const ACC = 0.55;
-  const MAX_SPEED = 6.5;
+  const ACC = 0.5;
+  const MAX_SPEED = 6.2;
   const BALL_FRICTION = 0.985;
-  const KICK_POWER = 13;
+  const KICK_POWER = 14;
   const KICK_CD = 22;
-  const MATCH_TIME = 120; // segundos
+  const MATCH_TIME = 180; // segundos (3 min)
+
+  // formación 4-3-3 (fracciones de cancha). Equipo A ataca hacia +X, B hacia -X.
+  const FORM = [
+    { x: 0.05, y: 0.50 },
+    { x: 0.15, y: 0.13 }, { x: 0.15, y: 0.34 }, { x: 0.15, y: 0.66 }, { x: 0.15, y: 0.87 },
+    { x: 0.34, y: 0.20 }, { x: 0.34, y: 0.50 }, { x: 0.34, y: 0.80 },
+    { x: 0.53, y: 0.28 }, { x: 0.53, y: 0.50 }, { x: 0.53, y: 0.72 },
+  ];
+  const ROLES = ['GK', 'DF', 'DF', 'DF', 'DF', 'MF', 'MF', 'MF', 'FW', 'FW', 'FW'];
+
+  function makeTeam(side) {
+    return FORM.map((f, i) => ({
+      x: side === 1 ? f.x * W : (1 - f.x) * W,
+      y: f.y * H,
+      homeX: side === 1 ? f.x * W : (1 - f.x) * W,
+      homeY: f.y * H,
+      vx: 0, vy: 0,
+      dir: { x: side, y: 0 },
+      kickCd: 0,
+      role: ROLES[i],
+      number: i + 1,
+    }));
+  }
 
   function freshState() {
     return {
       ball: { x: W / 2, y: H / 2, vx: 0, vy: 0 },
-      a: { x: W / 2 - 200, y: H / 2, vx: 0, vy: 0, kickCd: 0, dir: { x: 1, y: 0 } },
-      b: { x: W / 2 + 200, y: H / 2, vx: 0, vy: 0, kickCd: 0, dir: { x: -1, y: 0 } },
+      teamA: makeTeam(1),
+      teamB: makeTeam(-1),
       score: { a: 0, b: 0 },
       time: MATCH_TIME,
       countdown: 3,
@@ -32,13 +55,12 @@
   let state = freshState();
   let remoteState = null;
   let remoteInput = null;
-  let mode = 'local';       // 'local' | 'online' | 'cpu'
+  let mode = 'local';
   let role = null;
   let socket = null;
   let roomCode = null;
   let reported = false;
 
-  // ---- config carrera / vs CPU ----
   const qs = new URLSearchParams(location.search);
   const CAREER = qs.get('mode') === 'career' || qs.get('mode') === 'cpu';
   const myName = qs.get('me') || 'Azul';
@@ -51,7 +73,6 @@
 
   const keys = {};
 
-  // ---- elementos UI ----
   const lobby = document.getElementById('lobby');
   const codeEl = document.getElementById('code');
   const statusEl = document.getElementById('status');
@@ -63,7 +84,6 @@
   const clock = document.getElementById('clock');
   const overlayEl = document.getElementById('overlay');
 
-  // ---- inputs ----
   function inputA() {
     let x = 0, y = 0;
     if (keys['w'] || keys['W']) y -= 1;
@@ -98,24 +118,13 @@
     if (sp > MAX_SPEED) { p.vx = p.vx / sp * MAX_SPEED; p.vy = p.vy / sp * MAX_SPEED; }
   }
 
-  function cpuInput() {
-    const p = state.b, ball = state.ball;
-    const dx = ball.x - p.x, dy = ball.y - p.y;
-    const dist = Math.hypot(dx, dy);
-    let x = 0, y = 0;
-    if (Math.abs(dx) > 2) x = Math.sign(dx);
-    if (Math.abs(dy) > 2) y = Math.sign(dy);
-    return { x, y, kick: dist < P_R + B_R + 6 };
-  }
-
-  function kickBall(p) {
+  function kickBall(p, goalX) {
     if (p.kickCd > 0) return;
     const dx = state.ball.x - p.x, dy = state.ball.y - p.y;
     if (Math.hypot(dx, dy) > P_R + B_R + 9) return;
     p.kickCd = KICK_CD;
     let ax = p.dir.x, ay = p.dir.y;
     if (Math.hypot(ax, ay) < 0.01) {
-      const goalX = (p.x < W / 2) ? W : 0;
       const g = norm(goalX - p.x, H / 2 - p.y);
       ax = g.x; ay = g.y;
     }
@@ -125,8 +134,9 @@
 
   function resetKickoff() {
     state.ball = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
-    state.a.x = W / 2 - 200; state.a.y = H / 2; state.a.vx = 0; state.a.vy = 0; state.a.kickCd = 0;
-    state.b.x = W / 2 + 200; state.b.y = H / 2; state.b.vx = 0; state.b.vy = 0; state.b.kickCd = 0;
+    [...state.teamA, ...state.teamB].forEach(p => {
+      p.x = p.homeX; p.y = p.homeY; p.vx = 0; p.vy = 0; p.kickCd = 0;
+    });
   }
 
   function physics() {
@@ -145,7 +155,8 @@
       if (ball.x > W - B_R) { ball.x = W - B_R; ball.vx = -ball.vx * 0.8; }
     }
 
-    [state.a, state.b].forEach(p => {
+    const all = [...state.teamA, ...state.teamB];
+    all.forEach(p => {
       p.x += p.vx; p.y += p.vy;
       p.vx *= FRICTION; p.vy *= FRICTION;
       if (Math.hypot(p.vx, p.vy) < 0.05) { p.vx = 0; p.vy = 0; }
@@ -154,7 +165,7 @@
       if (p.kickCd > 0) p.kickCd--;
     });
 
-    [state.a, state.b].forEach(p => {
+    all.forEach(p => {
       const dx = ball.x - p.x, dy = ball.y - p.y;
       const d = Math.hypot(dx, dy);
       const min = P_R + B_R;
@@ -175,7 +186,67 @@
   function goal(team) {
     state.score[team]++;
     resetKickoff();
-    state.countdown = 1.2;
+    state.countdown = 1.5;
+  }
+
+  function nearestIndex(team, ball) {
+    let ni = 0, nd = Infinity;
+    for (let i = 0; i < team.length; i++) {
+      const d = Math.hypot(ball.x - team[i].x, ball.y - team[i].y);
+      if (d < nd) { nd = d; ni = i; }
+    }
+    return ni;
+  }
+
+  // control de un equipo: el humano manda al más cercano a la pelota; el resto, IA.
+  function teamControl(team, side, human, ball) {
+    const goalX = side === 1 ? W : 0;
+    const nearest = nearestIndex(team, ball);
+    const nd = Math.hypot(ball.x - team[nearest].x, ball.y - team[nearest].y);
+
+    for (let i = 0; i < team.length; i++) {
+      const p = team[i];
+
+      if (human && i === nearest) {
+        applyInput(p, human);
+        if (human.kick) kickBall(p, goalX);
+        continue;
+      }
+
+      // IA
+      if (p.role === 'GK') {
+        const ballClose = Math.hypot(ball.x - p.homeX, ball.y - p.homeY) < 90;
+        if (ballClose) {
+          const dd = norm(ball.x - p.x, ball.y - p.y);
+          applyInput(p, { x: dd.x, y: dd.y, kick: false });
+          if (Math.hypot(ball.x - p.x, ball.y - p.y) < P_R + B_R + 2) kickBall(p, goalX);
+        } else {
+          const d = norm(p.homeX - p.x, p.homeY - p.y);
+          if (Math.hypot(p.homeX - p.x, p.homeY - p.y) > 5) applyInput(p, { x: d.x, y: d.y, kick: false });
+        }
+        continue;
+      }
+
+      if (i === nearest) {
+        if (nd < P_R + B_R + 2) {
+          const gd = norm(goalX - p.x, H / 2 - p.y);
+          p.dir = gd;
+          applyInput(p, { x: gd.x, y: gd.y, kick: false });
+          if (Math.abs(goalX - p.x) < 300) kickBall(p, goalX);
+        } else {
+          const dd = norm(ball.x - p.x, ball.y - p.y);
+          applyInput(p, { x: dd.x, y: dd.y, kick: false });
+        }
+      } else {
+        const tx2 = p.homeX + (ball.x - W / 2) * 0.10;
+        const ty2 = p.homeY + (ball.y - H / 2) * 0.06;
+        const d = Math.hypot(tx2 - p.x, ty2 - p.y);
+        if (d > 8) {
+          const dd = norm(tx2 - p.x, ty2 - p.y);
+          applyInput(p, { x: dd.x, y: dd.y, kick: false });
+        }
+      }
+    }
   }
 
   function step() {
@@ -188,26 +259,14 @@
     }
 
     if (mode === 'local') {
-      applyInput(state.a, inputA());
-      applyInput(state.b, inputB());
-      if (inputA().kick) kickBall(state.a);
-      if (inputB().kick) kickBall(state.b);
+      teamControl(state.teamA, 1, inputA(), state.ball);
+      teamControl(state.teamB, -1, inputB(), state.ball);
     } else if (mode === 'cpu') {
-      applyInput(state.a, inputA());
-      if (inputA().kick) kickBall(state.a);
-      const ai = cpuInput();
-      applyInput(state.b, ai);
-      if (ai.kick) {
-        state.b.dir = norm(0 - state.b.x, H / 2 - state.b.y);
-        kickBall(state.b);
-      }
+      teamControl(state.teamA, 1, inputA(), state.ball);
+      teamControl(state.teamB, -1, null, state.ball);
     } else if (mode === 'online' && role === 'host') {
-      applyInput(state.a, inputA());
-      if (inputA().kick) kickBall(state.a);
-      if (remoteInput) {
-        applyInput(state.b, remoteInput);
-        if (remoteInput.kick) kickBall(state.b);
-      }
+      teamControl(state.teamA, 1, inputA(), state.ball);
+      teamControl(state.teamB, -1, remoteInput, state.ball);
     }
 
     physics();
@@ -221,19 +280,16 @@
     }
   }
 
-  function serialize() {
-    return JSON.parse(JSON.stringify(state));
-  }
+  function serialize() { return JSON.parse(JSON.stringify(state)); }
+  function applyRemote(s) { remoteState = s; }
 
-  function applyRemote(s) {
-    remoteState = s;
-  }
-
-  // ================= 3D (Three.js) =================
+  // ================= 3D =================
   let renderer = null, scene = null, camera = null;
-  let meshA = null, meshB = null, ballMesh = null;
-  let spriteA = null, spriteB = null;
-  let spriteLabelA = '', spriteLabelB = '';
+  const meshesA = [], meshesB = [];
+  let ballMesh = null, ringMesh = null, nameSprite = null;
+
+  const SKIN_TONES = [0xe8b678, 0xf0c8a0, 0xc68e5a, 0x9c6b43, 0x6b4a2f];
+  const HAIR_COLORS = [0x1a1208, 0x3a2a1a, 0x5a4030, 0x0f0a05, 0x8a6a3a];
 
   function tx(x) { return x - W / 2; }
   function tz(y) { return y - H / 2; }
@@ -252,74 +308,94 @@
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const g = c.getContext('2d');
-    // pasto
     g.fillStyle = '#2d7a3d';
     g.fillRect(0, 0, W, H);
-    // franjas
     g.fillStyle = 'rgba(255,255,255,0.04)';
     for (let i = 0; i < W; i += 80) g.fillRect(i, 0, 40, H);
-    // líneas
     g.strokeStyle = 'rgba(255,255,255,0.8)';
     g.lineWidth = 4;
     g.strokeRect(12, 12, W - 24, H - 24);
     g.beginPath(); g.moveTo(W / 2, 12); g.lineTo(W / 2, H - 12); g.stroke();
     g.beginPath(); g.arc(W / 2, H / 2, 70, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.arc(W / 2, H / 2, 6, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill();
-    // áreas
-    const box = (x) => {
-      g.strokeRect(x, H / 2 - 90, 80, 180);
-      g.strokeRect(x, H / 2 - 45, 30, 90);
-    };
-    box(12); box(W - 92);
+    const box = (x) => { g.strokeRect(x, H / 2 - 100, 85, 200); g.strokeRect(x, H / 2 - 50, 32, 100); };
+    box(12); box(W - 97);
     return new THREE.CanvasTexture(c);
   }
 
-  function makePlayer(color) {
+  function makeNumberTexture(n) {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 44px sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(n), 32, 34);
+    return new THREE.CanvasTexture(c);
+  }
+
+  function makePlayer(color, number) {
     const g = new THREE.Group();
-    const jersey = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
-    const skin = new THREE.MeshLambertMaterial({ color: 0xe8b678 });
-    const shorts = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
-    const hair = new THREE.MeshLambertMaterial({ color: 0x2f2216 });
+    const skin = new THREE.MeshPhongMaterial({ color: SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)], shininess: 20 });
+    const jersey = new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess: 30 });
+    const shorts = new THREE.MeshPhongMaterial({ color: 0xf5f5f5, shininess: 25 });
+    const sock = new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess: 15 });
+    const hair = new THREE.MeshPhongMaterial({ color: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)], shininess: 40 });
+    const boot = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 60 });
+    const eye = new THREE.MeshPhongMaterial({ color: 0x1a1a1a });
 
-    // sombra (disco en el suelo)
-    const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(P_R, 20),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 })
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(P_R + 1, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28 }));
+    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.5; g.add(shadow);
+
+    const bootG = new THREE.BoxGeometry(4, 3, 9);
+    const b1 = new THREE.Mesh(bootG, boot); b1.position.set(-3, 1.5, 3); g.add(b1);
+    const b2 = new THREE.Mesh(bootG, boot); b2.position.set(3, 1.5, 3); g.add(b2);
+
+    const sockG = new THREE.CylinderGeometry(3, 3.4, 9, 8);
+    const s1 = new THREE.Mesh(sockG, sock); s1.position.set(-3, 7, 2); g.add(s1);
+    const s2 = new THREE.Mesh(sockG, sock); s2.position.set(3, 7, 2); g.add(s2);
+
+    const thighG = new THREE.CylinderGeometry(3.4, 3.4, 9, 8);
+    const t1 = new THREE.Mesh(thighG, skin); t1.position.set(-3, 14, 2); g.add(t1);
+    const t2 = new THREE.Mesh(thighG, skin); t2.position.set(3, 14, 2); g.add(t2);
+
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(7, 6, 8, 12), shorts);
+    sh.position.y = 19; g.add(sh);
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(7, 8.5, 15, 16), jersey);
+    torso.position.y = 27; g.add(torso);
+
+    const armG = new THREE.CylinderGeometry(2.4, 2.6, 13, 8);
+    const al = new THREE.Mesh(armG, jersey); al.position.set(-8, 28, 4); al.rotation.z = 0.35; g.add(al);
+    const ar = new THREE.Mesh(armG, jersey); ar.position.set(8, 28, 4); ar.rotation.z = -0.35; g.add(ar);
+    const handG = new THREE.SphereGeometry(2.8, 10, 8);
+    const hl = new THREE.Mesh(handG, skin); hl.position.set(-10.5, 28, 5); g.add(hl);
+    const hr = new THREE.Mesh(handG, skin); hr.position.set(10.5, 28, 5); g.add(hr);
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3, 3, 10), skin);
+    neck.position.y = 36; g.add(neck);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(6.2, 20, 16), skin);
+    head.position.y = 41; g.add(head);
+
+    const hairMesh = new THREE.Mesh(new THREE.SphereGeometry(6.3, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), hair);
+    hairMesh.position.y = 41.5; hairMesh.position.z = -0.6; g.add(hairMesh);
+
+    const eyeG = new THREE.SphereGeometry(0.9, 8, 6);
+    const e1 = new THREE.Mesh(eyeG, eye); e1.position.set(-2.1, 41.5, 5.6); g.add(e1);
+    const e2 = new THREE.Mesh(eyeG, eye); e2.position.set(2.1, 41.5, 5.6); g.add(e2);
+
+    const numPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(11, 11),
+      new THREE.MeshBasicMaterial({ map: makeNumberTexture(number), transparent: true })
     );
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.6;
-    g.add(shadow);
-
-    // piernas
-    const legG = new THREE.CylinderGeometry(2.6, 2.6, 12, 8);
-    const legL = new THREE.Mesh(legG, skin); legL.position.set(-3.5, 6, 2); g.add(legL);
-    const legR = new THREE.Mesh(legG, skin); legR.position.set(3.5, 6, 2); g.add(legR);
-
-    // torso (camiseta)
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 8, 16, 14), jersey);
-    torso.position.y = 20; g.add(torso);
-
-    // pantalón
-    const sh = new THREE.Mesh(new THREE.CylinderGeometry(7, 6, 7, 12), shorts);
-    sh.position.y = 10; g.add(sh);
-
-    // brazos (hacia adelante = +Z)
-    const armG = new THREE.CylinderGeometry(2.4, 2.4, 13, 8);
-    const armL = new THREE.Mesh(armG, jersey); armL.position.set(-6.5, 21, 4); armL.rotation.x = 0.6; g.add(armL);
-    const armR = new THREE.Mesh(armG, jersey); armR.position.set(6.5, 21, 4); armR.rotation.x = 0.6; g.add(armR);
-
-    // cabeza
-    const head = new THREE.Mesh(new THREE.SphereGeometry(6.4, 18, 14), skin);
-    head.position.y = 32; g.add(head);
-
-    // pelo (casquete superior)
-    const hairMesh = new THREE.Mesh(new THREE.SphereGeometry(6.5, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), hair);
-    hairMesh.position.y = 32; g.add(hairMesh);
+    numPlane.position.set(0, 29, -8.8);
+    numPlane.rotation.y = Math.PI;
+    g.add(numPlane);
 
     return g;
   }
 
-  function makeNameSprite(text, color) {
+  function makeNameSprite(text) {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 64;
     const g = c.getContext('2d');
@@ -327,16 +403,32 @@
     const tw = g.measureText(text).width;
     const w = Math.max(80, tw + 40), h = 44;
     const x = (256 - w) / 2, y = (64 - h) / 2;
-    g.fillStyle = 'rgba(10,14,20,0.75)';
+    g.fillStyle = 'rgba(10,14,20,0.78)';
     roundRectPath(g, x, y, w, h, 20);
     g.fill();
-    g.fillStyle = color;
+    g.fillStyle = '#7dff9a';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(text, 128, 33);
     const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true });
     const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(w * 0.4, h * 0.4, 1);
+    sprite.scale.set(w * 0.38, h * 0.38, 1);
     return sprite;
+  }
+
+  function makeGoal(cx) {
+    const g = new THREE.Group();
+    const white = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 10 });
+    const net = new THREE.MeshPhongMaterial({ color: 0xdddddd, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+    const half = GOAL_HALF, h = 55;
+    const postG = new THREE.CylinderGeometry(3, 3, h, 12);
+    const p1 = new THREE.Mesh(postG, white); p1.position.set(cx, h / 2, -half); g.add(p1);
+    const p2 = new THREE.Mesh(postG, white); p2.position.set(cx, h / 2, half); g.add(p2);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, half * 2, 12), white);
+    bar.rotation.x = Math.PI / 2; bar.position.set(cx, h, 0); g.add(bar);
+    const dir = cx < 0 ? -1 : 1;
+    const netBox = new THREE.Mesh(new THREE.BoxGeometry(30, h, half * 2), net);
+    netBox.position.set(cx + dir * 15, h / 2, 0); g.add(netBox);
+    return g;
   }
 
   function init3D() {
@@ -347,9 +439,10 @@
     }
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a1a2a);
+    scene.fog = new THREE.Fog(0x0a1a2a, 900, 2200);
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 4000);
-    camera.position.set(0, 440, 520);
+    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 1, 4000);
+    camera.position.set(0, 480, 560);
     camera.lookAt(0, 0, 0);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -358,34 +451,39 @@
     document.getElementById('stage').appendChild(renderer.domElement);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-    sun.position.set(80, 200, 120);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+    sun.position.set(120, 260, 160);
     scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xbcd8ff, 0.4);
+    fill.position.set(-100, 80, -60);
+    scene.add(fill);
 
-    // cancha
-    const pitch = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, H),
-      new THREE.MeshLambertMaterial({ map: makePitchTexture() })
-    );
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshPhongMaterial({ map: makePitchTexture() }));
     pitch.rotation.x = -Math.PI / 2;
     scene.add(pitch);
 
-    // arcos
     scene.add(makeGoal(-W / 2));
     scene.add(makeGoal(W / 2));
 
-    // jugadores
-    meshA = makePlayer(myColor);
-    meshB = makePlayer(oppColor);
-    scene.add(meshA);
-    scene.add(meshB);
+    for (let i = 0; i < 11; i++) {
+      const a = makePlayer(myColor, i + 1); scene.add(a); meshesA.push(a);
+      const b = makePlayer(oppColor, i + 1); scene.add(b); meshesB.push(b);
+    }
 
-    // pelota
-    ballMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(B_R, 20, 16),
-      new THREE.MeshLambertMaterial({ color: 0xffffff })
-    );
+    ballMesh = new THREE.Mesh(new THREE.SphereGeometry(B_R, 22, 18), new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 40 }));
     scene.add(ballMesh);
+
+    ringMesh = new THREE.Mesh(
+      new THREE.RingGeometry(P_R + 2, P_R + 5, 24),
+      new THREE.MeshBasicMaterial({ color: 0x3fff5a, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    );
+    ringMesh.rotation.x = -Math.PI / 2;
+    scene.add(ringMesh);
+
+    if (mode === 'cpu' && p1) {
+      nameSprite = makeNameSprite(p1);
+      scene.add(nameSprite);
+    }
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -396,62 +494,29 @@
     return true;
   }
 
-  function makeGoal(cx) {
-    const g = new THREE.Group();
-    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const net = new THREE.MeshLambertMaterial({ color: 0xcccccc, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
-    const half = GOAL_HALF, h = 45;
-    const postG = new THREE.CylinderGeometry(3, 3, h, 12);
-    const p1 = new THREE.Mesh(postG, white); p1.position.set(cx, h / 2, -half); g.add(p1);
-    const p2 = new THREE.Mesh(postG, white); p2.position.set(cx, h / 2, half); g.add(p2);
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, half * 2, 12), white);
-    bar.rotation.x = Math.PI / 2; bar.position.set(cx, h, 0); g.add(bar);
-    const dir = cx < 0 ? -1 : 1;
-    const netBox = new THREE.Mesh(new THREE.BoxGeometry(26, h, half * 2), net);
-    netBox.position.set(cx + dir * 13, h / 2, 0); g.add(netBox);
-    return g;
-  }
-
-  function setPlayer(mesh, p, color, label) {
-    if (!mesh) return;
+  function updatePlayerMesh(mesh, p) {
     mesh.position.set(tx(p.x), 0, tz(p.y));
     mesh.rotation.y = Math.atan2(p.dir.x, p.dir.y);
-    // actualizar sprite de nombre
-  }
-
-  function ensureSprites() {
-    const la = mode === 'cpu' ? (p1 || myName) : 'A';
-    const lb = mode === 'cpu' ? oppName : 'B';
-    if (!spriteA || spriteLabelA !== la) {
-      if (spriteA) scene.remove(spriteA);
-      spriteA = makeNameSprite(la, myColor);
-      scene.add(spriteA);
-      spriteLabelA = la;
-    }
-    if (!spriteB || spriteLabelB !== lb) {
-      if (spriteB) scene.remove(spriteB);
-      spriteB = makeNameSprite(lb, oppColor);
-      scene.add(spriteB);
-      spriteLabelB = lb;
-    }
   }
 
   function render3D(s) {
     if (!scene) return;
-    ensureSprites();
-    setPlayer(meshA, s.a, myColor);
-    setPlayer(meshB, s.b, oppColor);
-    spriteA.position.set(tx(s.a.x), 54, tz(s.a.y));
-    spriteB.position.set(tx(s.b.x), 54, tz(s.b.y));
+    for (let i = 0; i < 11; i++) {
+      updatePlayerMesh(meshesA[i], s.teamA[i]);
+      updatePlayerMesh(meshesB[i], s.teamB[i]);
+    }
     ballMesh.position.set(tx(s.ball.x), B_R, tz(s.ball.y));
 
-    // HUD
+    const ca = nearestIndex(s.teamA, s.ball);
+    const controlled = s.teamA[ca];
+    ringMesh.position.set(tx(controlled.x), 0.7, tz(controlled.y));
+    if (nameSprite) nameSprite.position.set(tx(controlled.x), 56, tz(controlled.y));
+
     scoreA.textContent = (mode === 'cpu' ? myName + ' ' : '') + s.score.a;
     scoreB.textContent = s.score.b + (mode === 'cpu' ? ' ' + oppName : '');
     const t = Math.ceil(s.time);
     clock.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
 
-    // overlay
     if (s.countdown > 0) {
       overlayEl.textContent = String(Math.ceil(s.countdown));
       overlayEl.style.display = 'flex';
@@ -497,7 +562,7 @@
     state.started = true;
     state.countdown = 3;
     hideLobby();
-    hint.textContent = 'Azul: W A S D + Espacio (patear)  ·  Rojo: Flechas + Enter (patear)';
+    hint.textContent = 'Azul: W A S D + Espacio · Rojo: Flechas + Enter (controlás al más cercano a la pelota)';
     hint.style.display = 'block';
   }
 
@@ -563,8 +628,8 @@
     socket.emit('restart');
     hideLobby();
     hint.textContent = role === 'host'
-      ? 'Vos: Azul (W A S D + Espacio)  ·  Rival: Rojo'
-      : 'Vos: Rojo (Flechas + Enter)  ·  Rival: Azul';
+      ? 'Vos: Azul (W A S D + Espacio) · Rival: Rojo'
+      : 'Vos: Rojo (Flechas + Enter) · Rival: Azul';
     hint.style.display = 'block';
   }
 
@@ -573,7 +638,6 @@
     hud.style.display = 'flex';
   }
 
-  // ---- eventos UI ----
   document.getElementById('btnLocal').addEventListener('click', startLocal);
   document.getElementById('btnHost').addEventListener('click', createRoom);
   document.getElementById('btnJoin').addEventListener('click', joinRoom);
@@ -582,7 +646,6 @@
   });
   btnStart.addEventListener('click', startOnline);
 
-  // ---- teclado ----
   window.addEventListener('keydown', (e) => {
     if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', '/'].includes(e.key)) {
       e.preventDefault();
@@ -594,8 +657,6 @@
   });
 
   // ---- boot ----
-  init3D();
-
   if (CAREER) {
     mode = 'cpu';
     role = null;
@@ -603,9 +664,10 @@
     state.started = true;
     state.countdown = 3;
     hideLobby();
-    hint.textContent = 'Vos: ' + myName + ' (W A S D + Espacio)  ·  CPU: ' + oppName;
+    hint.textContent = 'Vos: ' + myName + ' (W A S D + Espacio) · 11 vs 11 · controlás al más cercano a la pelota';
     hint.style.display = 'block';
   }
 
+  init3D();
   requestAnimationFrame(loop);
 })();
