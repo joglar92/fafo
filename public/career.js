@@ -211,6 +211,7 @@
         <div class="big-rating" style="color:${ratingColor(overall)}">${overall}</div>
         <div class="home-name">${state.clubName}</div>
         <div class="record">${st.w} G · ${st.d} E · ${st.l} P</div>
+        ${!leagueDone && leagueOppId ? `<button class="play-big" data-play="league">▶ JUGAR</button>` : ''}
       </div>`;
 
     if (!leagueDone && leagueOppId) {

@@ -1,20 +1,7 @@
 (() => {
   'use strict';
 
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-
   const W = 1000, H = 640;
-  canvas.width = W;
-  canvas.height = H;
-
-  function fit() {
-    const scale = Math.min(window.innerWidth / W, window.innerHeight / H) * 0.97;
-    canvas.style.width = (W * scale) + 'px';
-    canvas.style.height = (H * scale) + 'px';
-  }
-  window.addEventListener('resize', fit);
-  fit();
 
   // ---- constantes ----
   const P_R = 16, B_R = 8;
@@ -43,10 +30,10 @@
   }
 
   let state = freshState();
-  let remoteState = null;   // para el guest
-  let remoteInput = null;   // input del guest en el host
+  let remoteState = null;
+  let remoteInput = null;
   let mode = 'local';       // 'local' | 'online' | 'cpu'
-  let role = null;          // 'host' | 'guest'
+  let role = null;
   let socket = null;
   let roomCode = null;
   let reported = false;
@@ -74,6 +61,7 @@
   const scoreA = document.getElementById('scoreA');
   const scoreB = document.getElementById('scoreB');
   const clock = document.getElementById('clock');
+  const overlayEl = document.getElementById('overlay');
 
   // ---- inputs ----
   function inputA() {
@@ -239,139 +227,243 @@
 
   function applyRemote(s) {
     remoteState = s;
-    // guest: render desde el estado del host
   }
 
-  // ---- render ----
-  function draw() {
-    const s = (mode === 'online' && role === 'guest' && remoteState) ? remoteState : state;
-    if (!s) return;
+  // ================= 3D (Three.js) =================
+  let renderer = null, scene = null, camera = null;
+  let meshA = null, meshB = null, ballMesh = null;
+  let spriteA = null, spriteB = null;
+  let spriteLabelA = '', spriteLabelB = '';
 
-    ctx.clearRect(0, 0, W, H);
+  function tx(x) { return x - W / 2; }
+  function tz(y) { return y - H / 2; }
 
+  function roundRectPath(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  function makePitchTexture() {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d');
     // pasto
-    ctx.fillStyle = '#2d6a2d';
-    ctx.fillRect(0, 0, W, H);
-    // rayas de pasto
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    for (let i = 0; i < W; i += 40) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke();
+    g.fillStyle = '#2d7a3d';
+    g.fillRect(0, 0, W, H);
+    // franjas
+    g.fillStyle = 'rgba(255,255,255,0.04)';
+    for (let i = 0; i < W; i += 80) g.fillRect(i, 0, 40, H);
+    // líneas
+    g.strokeStyle = 'rgba(255,255,255,0.8)';
+    g.lineWidth = 4;
+    g.strokeRect(12, 12, W - 24, H - 24);
+    g.beginPath(); g.moveTo(W / 2, 12); g.lineTo(W / 2, H - 12); g.stroke();
+    g.beginPath(); g.arc(W / 2, H / 2, 70, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(W / 2, H / 2, 6, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill();
+    // áreas
+    const box = (x) => {
+      g.strokeRect(x, H / 2 - 90, 80, 180);
+      g.strokeRect(x, H / 2 - 45, 30, 90);
+    };
+    box(12); box(W - 92);
+    return new THREE.CanvasTexture(c);
+  }
+
+  function makePlayer(color) {
+    const g = new THREE.Group();
+    const jersey = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+    const skin = new THREE.MeshLambertMaterial({ color: 0xe8b678 });
+    const shorts = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+    const hair = new THREE.MeshLambertMaterial({ color: 0x2f2216 });
+
+    // sombra (disco en el suelo)
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(P_R, 20),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.6;
+    g.add(shadow);
+
+    // piernas
+    const legG = new THREE.CylinderGeometry(2.6, 2.6, 12, 8);
+    const legL = new THREE.Mesh(legG, skin); legL.position.set(-3.5, 6, 2); g.add(legL);
+    const legR = new THREE.Mesh(legG, skin); legR.position.set(3.5, 6, 2); g.add(legR);
+
+    // torso (camiseta)
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 8, 16, 14), jersey);
+    torso.position.y = 20; g.add(torso);
+
+    // pantalón
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(7, 6, 7, 12), shorts);
+    sh.position.y = 10; g.add(sh);
+
+    // brazos (hacia adelante = +Z)
+    const armG = new THREE.CylinderGeometry(2.4, 2.4, 13, 8);
+    const armL = new THREE.Mesh(armG, jersey); armL.position.set(-6.5, 21, 4); armL.rotation.x = 0.6; g.add(armL);
+    const armR = new THREE.Mesh(armG, jersey); armR.position.set(6.5, 21, 4); armR.rotation.x = 0.6; g.add(armR);
+
+    // cabeza
+    const head = new THREE.Mesh(new THREE.SphereGeometry(6.4, 18, 14), skin);
+    head.position.y = 32; g.add(head);
+
+    // pelo (casquete superior)
+    const hairMesh = new THREE.Mesh(new THREE.SphereGeometry(6.5, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), hair);
+    hairMesh.position.y = 32; g.add(hairMesh);
+
+    return g;
+  }
+
+  function makeNameSprite(text, color) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const g = c.getContext('2d');
+    g.font = 'bold 30px sans-serif';
+    const tw = g.measureText(text).width;
+    const w = Math.max(80, tw + 40), h = 44;
+    const x = (256 - w) / 2, y = (64 - h) / 2;
+    g.fillStyle = 'rgba(10,14,20,0.75)';
+    roundRectPath(g, x, y, w, h, 20);
+    g.fill();
+    g.fillStyle = color;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, 128, 33);
+    const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(w * 0.4, h * 0.4, 1);
+    return sprite;
+  }
+
+  function init3D() {
+    if (typeof THREE === 'undefined') {
+      hint.textContent = 'No se pudo cargar el motor 3D (Three.js).';
+      hint.style.display = 'block';
+      return false;
     }
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a1a2a);
 
-    // lineas del campo
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(10, 10, W - 20, H - 20);
-    ctx.beginPath(); ctx.moveTo(W / 2, 10); ctx.lineTo(W / 2, H - 10); ctx.stroke();
-    ctx.beginPath(); ctx.arc(W / 2, H / 2, 70, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(W / 2, H / 2, 5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 4000);
+    camera.position.set(0, 440, 520);
+    camera.lookAt(0, 0, 0);
 
-    // áreas + arcos
-    drawBox(60, 180);
-    drawBox(W - 60, 180);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('stage').appendChild(renderer.domElement);
 
-    // arcos (boca)
-    ctx.fillStyle = '#222';
-    ctx.fillRect(-6, GOAL_Y - GOAL_HALF, 14, GOAL_HALF * 2);
-    ctx.fillRect(W - 8, GOAL_Y - GOAL_HALF, 14, GOAL_HALF * 2);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    sun.position.set(80, 200, 120);
+    scene.add(sun);
+
+    // cancha
+    const pitch = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, H),
+      new THREE.MeshLambertMaterial({ map: makePitchTexture() })
+    );
+    pitch.rotation.x = -Math.PI / 2;
+    scene.add(pitch);
+
+    // arcos
+    scene.add(makeGoal(-W / 2));
+    scene.add(makeGoal(W / 2));
 
     // jugadores
-    drawPlayer(s.a, myColor, mode === 'cpu' ? (p1 || myName) : 'A');
-    drawPlayer(s.b, oppColor, mode === 'cpu' ? oppName : 'B');
+    meshA = makePlayer(myColor);
+    meshB = makePlayer(oppColor);
+    scene.add(meshA);
+    scene.add(meshB);
 
     // pelota
-    ctx.beginPath();
-    ctx.arc(s.ball.x, s.ball.y, B_R, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
+    ballMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(B_R, 20, 16),
+      new THREE.MeshLambertMaterial({ color: 0xffffff })
+    );
+    scene.add(ballMesh);
 
-    // countdown / over
-    if (s.countdown > 0) {
-      overlay(Math.ceil(s.countdown));
-    } else if (s.over) {
-      overlay(s.winner === 'draw' ? 'EMPATE' : (s.winner === 'a' ? 'GANÓ AZUL' : 'GANÓ ROJO'));
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    return true;
+  }
+
+  function makeGoal(cx) {
+    const g = new THREE.Group();
+    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const net = new THREE.MeshLambertMaterial({ color: 0xcccccc, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+    const half = GOAL_HALF, h = 45;
+    const postG = new THREE.CylinderGeometry(3, 3, h, 12);
+    const p1 = new THREE.Mesh(postG, white); p1.position.set(cx, h / 2, -half); g.add(p1);
+    const p2 = new THREE.Mesh(postG, white); p2.position.set(cx, h / 2, half); g.add(p2);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, half * 2, 12), white);
+    bar.rotation.x = Math.PI / 2; bar.position.set(cx, h, 0); g.add(bar);
+    const dir = cx < 0 ? -1 : 1;
+    const netBox = new THREE.Mesh(new THREE.BoxGeometry(26, h, half * 2), net);
+    netBox.position.set(cx + dir * 13, h / 2, 0); g.add(netBox);
+    return g;
+  }
+
+  function setPlayer(mesh, p, color, label) {
+    if (!mesh) return;
+    mesh.position.set(tx(p.x), 0, tz(p.y));
+    mesh.rotation.y = Math.atan2(p.dir.x, p.dir.y);
+    // actualizar sprite de nombre
+  }
+
+  function ensureSprites() {
+    const la = mode === 'cpu' ? (p1 || myName) : 'A';
+    const lb = mode === 'cpu' ? oppName : 'B';
+    if (!spriteA || spriteLabelA !== la) {
+      if (spriteA) scene.remove(spriteA);
+      spriteA = makeNameSprite(la, myColor);
+      scene.add(spriteA);
+      spriteLabelA = la;
     }
+    if (!spriteB || spriteLabelB !== lb) {
+      if (spriteB) scene.remove(spriteB);
+      spriteB = makeNameSprite(lb, oppColor);
+      scene.add(spriteB);
+      spriteLabelB = lb;
+    }
+  }
+
+  function render3D(s) {
+    if (!scene) return;
+    ensureSprites();
+    setPlayer(meshA, s.a, myColor);
+    setPlayer(meshB, s.b, oppColor);
+    spriteA.position.set(tx(s.a.x), 54, tz(s.a.y));
+    spriteB.position.set(tx(s.b.x), 54, tz(s.b.y));
+    ballMesh.position.set(tx(s.ball.x), B_R, tz(s.ball.y));
 
     // HUD
     scoreA.textContent = (mode === 'cpu' ? myName + ' ' : '') + s.score.a;
     scoreB.textContent = s.score.b + (mode === 'cpu' ? ' ' + oppName : '');
     const t = Math.ceil(s.time);
     clock.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
-  }
 
-  function drawBox(x, h) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.strokeRect(x, GOAL_Y - h / 2, 80, h);
-    ctx.strokeRect(x, GOAL_Y - h / 4, 30, h / 2);
-  }
-
-  function rrect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  function drawPlayer(p, color, label) {
-    const a = Math.atan2(p.dir.y, p.dir.x);
-
-    // sombra
-    ctx.beginPath();
-    ctx.ellipse(p.x + 2, p.y + 3, P_R * 0.95, P_R * 0.82, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.30)';
-    ctx.fill();
-
-    // brazos hacia la dirección
-    ctx.strokeStyle = color; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (const off of [0.5, -0.5]) {
-      const s = a + off;
-      ctx.moveTo(p.x + Math.cos(s) * P_R * 0.65, p.y + Math.sin(s) * P_R * 0.65);
-      ctx.lineTo(p.x + Math.cos(a) * (P_R + 6), p.y + Math.sin(a) * (P_R + 6));
+    // overlay
+    if (s.countdown > 0) {
+      overlayEl.textContent = String(Math.ceil(s.countdown));
+      overlayEl.style.display = 'flex';
+    } else if (s.over) {
+      overlayEl.textContent = s.winner === 'draw' ? 'EMPATE'
+        : (s.winner === 'a' ? 'GANÓ ' + (mode === 'cpu' ? myName : 'AZUL') : 'GANÓ ' + (mode === 'cpu' ? oppName : 'ROJO'));
+      overlayEl.style.display = 'flex';
+    } else {
+      overlayEl.style.display = 'none';
     }
-    ctx.stroke();
 
-    // cuerpo (camiseta)
-    ctx.beginPath(); ctx.arc(p.x, p.y, P_R, 0, Math.PI * 2);
-    ctx.fillStyle = color; ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2; ctx.stroke();
-
-    // cabeza
-    const hr = P_R * 0.52;
-    ctx.beginPath(); ctx.arc(p.x, p.y, hr, 0, Math.PI * 2);
-    ctx.fillStyle = '#e8b678'; ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    // pelo (mitad trasera de la cabeza)
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, hr, a + Math.PI / 2, a + Math.PI * 1.5);
-    ctx.fillStyle = '#3a2a1a';
-    ctx.fill();
-
-    // etiqueta con nombre
-    if (label) {
-      ctx.font = 'bold 11px sans-serif';
-      const tw = ctx.measureText(label).width;
-      const ty = p.y - P_R - 13;
-      ctx.fillStyle = 'rgba(10,14,20,0.72)';
-      rrect(p.x - tw / 2 - 6, ty - 9, tw + 12, 18, 5);
-      ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(label, p.x, ty);
-    }
-  }
-
-  function overlay(txt) {
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 72px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(txt, W / 2, H / 2);
+    renderer.render(scene, camera);
   }
 
   // ---- loop ----
@@ -392,7 +484,8 @@
       h.innerHTML = '<a href="/career.html" style="color:#3fb950;font-weight:700;text-decoration:underline;font-size:15px">← Volver al Modo Carrera</a>';
       h.style.pointerEvents = 'auto';
     }
-    draw();
+    const s = (mode === 'online' && role === 'guest' && remoteState) ? remoteState : state;
+    render3D(s);
     requestAnimationFrame(loop);
   }
 
@@ -457,7 +550,6 @@
     });
 
     if (role === 'guest') {
-      // enviar input 30 veces/seg
       setInterval(() => {
         if (socket && socket.connected) socket.emit('input', inputB());
       }, 33);
@@ -500,6 +592,9 @@
   window.addEventListener('keyup', (e) => {
     keys[e.key] = false;
   });
+
+  // ---- boot ----
+  init3D();
 
   if (CAREER) {
     mode = 'cpu';

@@ -6,7 +6,10 @@
   <title>FAFO Fútbol</title>
   <link rel="stylesheet" href="/style.css">
   <style>
-    body { overflow: hidden; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #071018; }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; }
+
     #lobby {
       position: fixed; inset: 0; z-index: 10;
       display: flex; align-items: center; justify-content: center;
@@ -39,23 +42,35 @@
     }
     #code { font-size: 30px; letter-spacing: 6px; font-weight: 800; color: #3fb950; margin: 12px 0; }
     #status { color: var(--muted); font-size: 14px; margin-top: 8px; min-height: 20px; }
+
     #hud {
       position: fixed; top: 0; left: 0; right: 0;
       display: flex; align-items: center; justify-content: center; gap: 18px;
       padding: 10px; font-weight: 800; font-size: 18px; pointer-events: none;
       z-index: 5;
     }
-    #hud .score { background: var(--card); border: 1px solid var(--border); padding: 6px 18px; border-radius: 10px; }
+    #hud .score { background: rgba(22,27,34,.85); border: 1px solid var(--border); padding: 6px 18px; border-radius: 10px; }
     #hud .clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+
     #hint {
       position: fixed; bottom: 0; left: 0; right: 0;
       text-align: center; color: var(--muted); font-size: 13px;
       padding: 8px; z-index: 5; pointer-events: none;
     }
-    canvas { display: block; margin: 0 auto; }
+
+    #overlay {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      pointer-events: none; z-index: 6;
+      font-size: 72px; font-weight: 900; color: #fff;
+      text-shadow: 0 4px 24px rgba(0,0,0,.7);
+      background: rgba(0,0,0,.45);
+    }
   </style>
 </head>
 <body>
+  <div id="stage"></div>
+
   <div id="lobby">
     <div class="panel">
       <h2>⚽ FAFO Fútbol</h2>
@@ -78,9 +93,9 @@
     <div class="score" id="scoreB">0</div>
   </div>
   <div id="hint" style="display:none"></div>
+  <div id="overlay"></div>
 
-  <canvas id="game"></canvas>
-
+  <script src="/lib/three.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/game/fafo.js"></script>
 </body>
