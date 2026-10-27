@@ -172,6 +172,7 @@
   // ---- login (usuarios) ----
   const USERS_KEY = 'fafo_users';
   const SESSION_KEY = 'fafo_session';
+  const MIGRATED_KEY = 'fafo_migrated';
   let currentUser = null;
 
   function hashPass(username, pass) {
@@ -195,10 +196,14 @@
     currentUser = user;
     localStorage.setItem(SESSION_KEY, user);
     state = loadClubFor(user);
-    if (!state) {
-      // migración: si había un club guardado sin cuenta, lo toma este usuario
+    if (!state && !localStorage.getItem(MIGRATED_KEY)) {
+      // migración: el club que ya existía (sin cuenta) pasa a la PRIMERA cuenta creada
       const legacy = load();
-      if (legacy && legacy.squad) { state = legacy; save(); }
+      if (legacy && legacy.squad) {
+        state = legacy;
+        localStorage.setItem(MIGRATED_KEY, '1');
+        save();
+      }
     }
     if (state) {
       if (state.cup === undefined) state.cup = newCup();
