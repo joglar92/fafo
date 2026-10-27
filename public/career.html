@@ -123,9 +123,12 @@
       box-shadow: 0 6px 22px rgba(63,185,80,.4);
     }
     .overall-card { background: linear-gradient(160deg, #1b2c3e, #101c2a); }
+    #ballbg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+    #app { z-index: 1; }
   </style>
 </head>
 <body>
+  <canvas id="ballbg" aria-hidden="true"></canvas>
   <div id="app">
     <div id="setup">
       <div class="panel">
@@ -182,5 +185,6 @@
     </div>
   </div>
   <script src="/career.js"></script>
+  <script src="/ball.js"></script>
 </body>
 </html>

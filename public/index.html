@@ -2,89 +2,11 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>FAFO · Fútbol</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Big+Shoulders+Display:wght@700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/menu.css">
+  <meta http-equiv="refresh" content="0; url=/career.html">
+  <title>FAFO · Cargando…</title>
+  <script>location.replace('/career.html');</script>
 </head>
-<body>
-  <canvas id="ballbg" aria-hidden="true"></canvas>
-
-  <!-- Barra superior -->
-  <header id="topbar">
-    <button class="profile" id="btnProfile" title="Perfil">
-      <span class="p-avatar" id="pAvatar">⚽</span>
-      <span class="p-info">
-        <b id="pName">FAFO</b>
-        <span class="p-level">NV <span id="pLevel">1</span></span>
-        <span class="xp"><i id="xpFill" style="width:0%"></i></span>
-      </span>
-    </button>
-    <div class="currencies">
-      <div class="cur"><span class="ico coin">◉</span><b id="pCoins">0</b></div>
-      <div class="cur"><span class="ico gem">◆</span><b id="pGems">0</b></div>
-      <button class="ico-btn" id="btnAdd" title="Añadir recursos">＋</button>
-      <button class="ico-btn" id="btnFriends" title="Amigos">◈</button>
-      <button class="ico-btn" id="btnMsg" title="Mensajes">✉</button>
-      <button class="ico-btn" id="btnSettings" title="Ajustes">⚙</button>
-    </div>
-  </header>
-
-  <!-- Columna izquierda -->
-  <nav id="leftnav">
-    <button class="ln-btn" id="btnNews" title="Noticias">▤</button>
-    <button class="ln-btn" id="btnCollection" title="Colección">◫</button>
-    <button class="ln-btn" id="btnEvents" title="Eventos">✦</button>
-  </nav>
-
-  <!-- Contenido principal -->
-  <main id="stage">
-    <section class="panel beta" id="betaPanel">
-      <header class="beta-head">
-        <span class="beta-tag">BETA</span>
-        <span class="beta-title">SISTEMA TÁCTICO</span>
-      </header>
-      <canvas id="pitch"></canvas>
-      <div class="beta-pages"><i class="on"></i><i></i><i></i></div>
-    </section>
-
-    <section class="cards-row">
-      <button class="panel club-card" id="btnClub">
-        <span class="club-title">CLUB</span>
-        <span class="club-crest" id="clubCrest">⚽</span>
-        <span class="club-ovr"><b id="clubOvr">--</b><i>GRL</i></span>
-      </button>
-      <button class="panel play-card" id="btnPlay">
-        <span class="play-title">PLAY</span>
-        <span class="play-sub">Fútbol 3D</span>
-        <span class="play-cta">▶ JUGAR</span>
-      </button>
-    </section>
-  </main>
-
-  <!-- Barra de navegación inferior -->
-  <nav id="bottomnav">
-    <button class="bn active" data-nav="home"><span class="bn-ic">⌂</span><span>INICIO</span></button>
-    <button class="bn" data-nav="league"><span class="bn-ic">▣</span><span>LIGA</span></button>
-    <button class="bn" data-nav="market"><span class="bn-ic">⇄</span><span>MERCADO</span></button>
-    <button class="bn" data-nav="cup"><span class="bn-ic">🏆</span><span>COPA</span></button>
-    <button class="bn" data-nav="store"><span class="bn-ic">⬡</span><span>TIENDA</span></button>
-  </nav>
-
-  <!-- Aviso -->
-  <div id="toast" class="toast" hidden></div>
-
-  <!-- Modal genérico -->
-  <div id="modal" class="modal" hidden>
-    <div class="modal-box">
-      <h2 id="modalTitle">Ajustes</h2>
-      <div id="modalBody"></div>
-      <button class="modal-close" id="modalClose">Cerrar</button>
-    </div>
-  </div>
-
-  <script src="/menu.js"></script>
+<body style="margin:0;height:100vh;background:#070b14;color:#e6edf3;font-family:sans-serif;display:flex;align-items:center;justify-content:center;font-size:16px;">
+  Cargando FAFO…
 </body>
 </html>
