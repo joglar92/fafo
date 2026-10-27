@@ -212,7 +212,8 @@
         <div class="home-name">${state.clubName}</div>
         <div class="record">${st.w} G · ${st.d} E · ${st.l} P</div>
         ${!leagueDone && leagueOppId ? `<button class="play-big" data-play="league">▶ JUGAR</button>` : ''}
-      </div>`;
+      </div>
+      <button class="btn primary" id="btnVsFriend" style="width:100%;margin-top:12px">🌐 Jugar contra un amigo</button>`;
 
     if (!leagueDone && leagueOppId) {
       html += matchCard('league', teamsById[leagueOppId], 'Liga · Fecha ' + (state.season.round + 1) + '/' + state.season.rounds.length);
@@ -229,6 +230,8 @@
 
     $('#content').innerHTML = html;
     wireMatchActions();
+    const vsBtn = $('#btnVsFriend');
+    if (vsBtn) vsBtn.addEventListener('click', () => { window.location.href = '/game/fafo.html'; });
     if (leagueDone && cupDone) $('#btnReset').addEventListener('click', () => {
       state.season = newSeason();
       state.cup = newCup();
@@ -395,6 +398,13 @@
     if (!raw || !state) return;
     localStorage.removeItem(PENDING_KEY);
     const pend = JSON.parse(raw);
+    if (pend.type === 'friendly') {
+      if (pend.myGoals > pend.oppGoals) { addXP(80); addCoins(300); addMoney(3); }
+      else if (pend.myGoals === pend.oppGoals) { addXP(40); addCoins(150); addMoney(1); }
+      else { addXP(15); addCoins(50); }
+      save(); render();
+      return;
+    }
     if (pend.comp === 'cup') {
       if (currentCupOpponent() && pend.oppId === currentCupOpponent()) playCupRound(pend.myGoals, pend.oppGoals);
       else render();

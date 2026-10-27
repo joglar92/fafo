@@ -26,21 +26,28 @@
   ];
   const ROLES = ['GK', 'DF', 'DF', 'DF', 'DF', 'MF', 'MF', 'MF', 'FW', 'FW', 'FW'];
 
-  function makeTeam(side) {
-    return FORM.map((f, i) => ({
-      x: side === 1 ? f.x * W : (1 - f.x) * W,
-      y: f.y * H,
-      homeX: side === 1 ? f.x * W : (1 - f.x) * W,
-      homeY: f.y * H,
-      vx: 0, vy: 0,
-      dir: { x: side, y: 0 },
-      kickCd: 0,
-      role: ROLES[i],
-      number: i + 1,
-      team: side === 1 ? 'A' : 'B',
-      yellow: 0,
-      sentOff: false,
-    }));
+  function makeTeam(side, lineup) {
+    return FORM.map((f, i) => {
+      const lp = lineup ? lineup[i] : null;
+      return {
+        x: side === 1 ? f.x * W : (1 - f.x) * W,
+        y: f.y * H,
+        homeX: side === 1 ? f.x * W : (1 - f.x) * W,
+        homeY: f.y * H,
+        vx: 0, vy: 0,
+        dir: { x: side, y: 0 },
+        kickCd: 0,
+        role: ROLES[i],
+        number: i + 1,
+        name: lp ? lp.name : null,
+        rating: lp ? lp.rating : 70,
+        spd: lp ? speedFor(lp.rating) : 1,
+        pwr: lp ? powerFor(lp.rating) : 1,
+        team: side === 1 ? 'A' : 'B',
+        yellow: 0,
+        sentOff: false,
+      };
+    });
   }
 
   function freshState() {
@@ -81,6 +88,45 @@
   const oppId = qs.get('oppId') || null;
   const comp = qs.get('comp') || 'league';
   const p1 = qs.get('p1') || null;
+
+  // ---- plantel real del modo carrera (online) ----
+  let teamAName = myName;   // 'Azul' por defecto; club en online; URL en cpu
+  let teamBName = oppName;
+  let teamAColor = myColor;
+  let teamBColor = oppColor;
+  let myClub = null;    // { name, color, lineup: [{name, rating, pos}] }
+  let oppClub = null;
+  let gotOppSquad = false;
+
+  function speedFor(r) { return Math.max(0.7, Math.min(1.2, 0.8 + (r - 65) * 0.012)); }
+  function powerFor(r) { return Math.max(0.7, Math.min(1.2, 0.8 + (r - 65) * 0.010)); }
+
+  function buildLineup(players) {
+    const byPos = { GK: [], DF: [], MF: [], FW: [] };
+    players.forEach(p => ((byPos[p.pos] || byPos.MF)).push(p));
+    Object.values(byPos).forEach(arr => arr.sort((a, b) => b.rating - a.rating));
+    const picks = [];
+    const take = (pos, n) => { const arr = byPos[pos] || []; for (let i = 0; i < n; i++) picks.push(arr[i] || null); };
+    take('GK', 1); take('DF', 4); take('MF', 3); take('FW', 3);
+    const rest = players.filter(p => !picks.includes(p) && p.pos !== 'GK').sort((a, b) => b.rating - a.rating);
+    for (let i = 0; i < picks.length; i++) {
+      if (!picks[i]) picks[i] = rest.shift() || { name: 'Suplente', rating: 65, pos: 'MF' };
+    }
+    return picks;
+  }
+
+  function loadMyClub() {
+    return fetch('/data/players.json')
+      .then(r => r.json())
+      .then(ps => {
+        const byId = Object.fromEntries(ps.map(p => [p.id, p]));
+        const save = JSON.parse(localStorage.getItem('fafo_career') || 'null');
+        if (!save || !save.squad || !save.squad.length) return null;
+        const squad = save.squad.map(id => byId[id]).filter(Boolean).map(p => ({ name: p.name, rating: p.rating, pos: p.pos }));
+        return { name: save.clubName, color: save.clubColor || '#1f6feb', lineup: buildLineup(squad) };
+      })
+      .catch(() => null);
+  }
 
   const keys = {};
 
@@ -128,7 +174,8 @@
     p.vx += d.x * ACC;
     p.vy += d.y * ACC;
     const sp = Math.hypot(p.vx, p.vy);
-    if (sp > MAX_SPEED) { p.vx = p.vx / sp * MAX_SPEED; p.vy = p.vy / sp * MAX_SPEED; }
+    const lim = MAX_SPEED * (p.spd || 1);
+    if (sp > lim) { p.vx = p.vx / sp * lim; p.vy = p.vy / sp * lim; }
   }
 
   function kickBall(p, goalX) {
@@ -141,8 +188,9 @@
       const g = norm(goalX - p.x, H / 2 - p.y);
       ax = g.x; ay = g.y;
     }
-    state.ball.vx = ax * KICK_POWER + p.vx * 0.3;
-    state.ball.vy = ay * KICK_POWER + p.vy * 0.3;
+    const pw = KICK_POWER * (p.pwr || 1);
+    state.ball.vx = ax * pw + p.vx * 0.3;
+    state.ball.vy = ay * pw + p.vy * 0.3;
     state.ball.team = p.team;
   }
 
@@ -646,7 +694,7 @@
     numPlane.rotation.y = Math.PI;
     g.add(numPlane);
 
-    g.userData = { legL, legR, armL, armR, phase: Math.random() * Math.PI * 2 };
+    g.userData = { legL, legR, armL, armR, jersey, phase: Math.random() * Math.PI * 2 };
     return g;
   }
 
@@ -730,8 +778,8 @@
     meshesB.forEach(m => scene.remove(m));
     meshesA.length = 0; meshesB.length = 0;
     for (let i = 0; i < 11; i++) {
-      const a = makeGLBPlayer(myColor); scene.add(a); meshesA.push(a);
-      const b = makeGLBPlayer(oppColor); scene.add(b); meshesB.push(b);
+      const a = makeGLBPlayer(teamAColor); scene.add(a); meshesA.push(a);
+      const b = makeGLBPlayer(teamBColor); scene.add(b); meshesB.push(b);
     }
   }
 
@@ -742,6 +790,25 @@
       playerGltf = gltf;
       try { installGLBPlayers(); } catch (e) { /* se mantiene el fallback procedural */ }
     });
+  }
+
+  function recolorTeam(meshes, color) {
+    if (typeof THREE === 'undefined') return;
+    const c = new THREE.Color(color);
+    meshes.forEach(m => {
+      m.traverse(o => {
+        if (o.isMesh && o.material) {
+          const n = (o.material.name || '').toLowerCase();
+          if (n.includes('joint')) o.material.color.copy(c);
+        }
+      });
+      if (m.userData && m.userData.jersey) m.userData.jersey.color.copy(c);
+    });
+  }
+  function setTeamColors(a, b) {
+    teamAColor = a; teamBColor = b;
+    recolorTeam(meshesA, a);
+    recolorTeam(meshesB, b);
   }
 
   function init3D() {
@@ -796,8 +863,8 @@
     const est = makeStand(standD, standH, H + 500); est.position.set(W / 2 + 220, standH / 2, 0); scene.add(est);
 
     for (let i = 0; i < 11; i++) {
-      const a = makePlayer(myColor, i + 1); scene.add(a); meshesA.push(a);
-      const b = makePlayer(oppColor, i + 1); scene.add(b); meshesB.push(b);
+      const a = makePlayer(teamAColor, i + 1); scene.add(a); meshesA.push(a);
+      const b = makePlayer(teamBColor, i + 1); scene.add(b); meshesB.push(b);
     }
 
     ballMesh = new THREE.Mesh(new THREE.SphereGeometry(B_R, 24, 18), new THREE.MeshStandardMaterial({ map: makeBallTexture(), roughness: 0.4 }));
@@ -863,6 +930,7 @@
     }
   }
 
+  let shownName = '';
   function render3D(s) {
     if (!scene) return;
     for (let i = 0; i < 11; i++) {
@@ -872,13 +940,22 @@
     ballMesh.position.set(tx(s.ball.x), B_R, tz(s.ball.y));
     ballMesh.rotation.y += Math.hypot(s.ball.vx, s.ball.vy) * 0.02;
 
-    const ca = nearestIndex(s.teamA, s.ball);
-    const controlled = s.teamA[ca];
+    const myTeam = (mode === 'online' && role === 'guest') ? s.teamB : s.teamA;
+    const ca = nearestIndex(myTeam, s.ball);
+    const controlled = myTeam[ca];
     ringMesh.position.set(tx(controlled.x), 0.7, tz(controlled.y));
+
+    // nombre del jugador que controlás (solo si el plantel tiene nombres reales)
+    const cname = controlled && controlled.name ? controlled.name : '';
+    if (cname !== shownName) {
+      shownName = cname;
+      if (nameSprite) { scene.remove(nameSprite); nameSprite = null; }
+      if (cname) { nameSprite = makeNameSprite(cname); scene.add(nameSprite); }
+    }
     if (nameSprite) nameSprite.position.set(tx(controlled.x), 30, tz(controlled.y));
 
-    scoreA.textContent = (mode === 'cpu' ? myName + ' ' : '') + s.score.a;
-    scoreB.textContent = s.score.b + (mode === 'cpu' ? ' ' + oppName : '');
+    scoreA.textContent = (teamAName && teamAName !== 'Azul' ? teamAName + ' ' : '') + s.score.a;
+    scoreB.textContent = s.score.b + (teamBName && teamBName !== 'Rojo' ? ' ' + teamBName : '');
     const t = Math.ceil(s.time);
     clock.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
 
@@ -890,7 +967,7 @@
       overlayEl.style.display = 'flex';
     } else if (s.over) {
       overlayEl.textContent = s.winner === 'draw' ? 'EMPATE'
-        : (s.winner === 'a' ? 'GANÓ ' + (mode === 'cpu' ? myName : 'AZUL') : 'GANÓ ' + (mode === 'cpu' ? oppName : 'ROJO'));
+        : (s.winner === 'a' ? 'GANÓ ' + (teamAName !== 'Azul' ? teamAName : 'AZUL') : 'GANÓ ' + (teamBName !== 'Rojo' ? teamBName : 'ROJO'));
       overlayEl.style.display = 'flex';
     } else {
       overlayEl.style.display = 'none';
@@ -911,14 +988,20 @@
         socket.emit('state', serialize());
       }
     }
-    if (mode === 'cpu' && CAREER && state.over && !reported) {
+    const s = (mode === 'online' && role === 'guest' && remoteState) ? remoteState : state;
+    if (s.over && !reported) {
       reported = true;
-      localStorage.setItem('fafo_career_pending', JSON.stringify({ myGoals: state.score.a, oppGoals: state.score.b, oppId: oppId, comp: comp }));
+      if (mode === 'cpu' && CAREER) {
+        localStorage.setItem('fafo_career_pending', JSON.stringify({ myGoals: s.score.a, oppGoals: s.score.b, oppId: oppId, comp: comp }));
+      } else if (mode === 'online' && myClub) {
+        const myGoals = role === 'host' ? s.score.a : s.score.b;
+        const oppGoals = role === 'host' ? s.score.b : s.score.a;
+        localStorage.setItem('fafo_career_pending', JSON.stringify({ type: 'friendly', myGoals, oppGoals }));
+      }
       const h = document.getElementById('hint');
       h.innerHTML = '<a href="/career.html" style="color:#3fb950;font-weight:700;text-decoration:underline;font-size:15px">← Volver al Modo Carrera</a>';
       h.style.pointerEvents = 'auto';
     }
-    const s = (mode === 'online' && role === 'guest' && remoteState) ? remoteState : state;
     render3D(s);
     requestAnimationFrame(loop);
   }
@@ -935,6 +1018,21 @@
     hint.style.display = 'block';
   }
 
+  function sendMySquad() {
+    if (!socket || !socket.connected) return;
+    if (myClub) {
+      socket.emit('squad', { name: myClub.name, color: myClub.color, lineup: myClub.lineup });
+    } else {
+      socket.emit('squad', { name: role === 'host' ? 'Azul' : 'Rojo', color: role === 'host' ? teamAColor : teamBColor, lineup: null });
+    }
+  }
+
+  function maybeEnableStart() {
+    if (role !== 'host' || !gotOppSquad) return;
+    btnStart.style.display = 'block';
+    statusEl.textContent = oppClub ? ('Rival: ' + oppClub.name + ' · ¡Listos!') : 'Rival sin club (genérico) · ¡Listos!';
+  }
+
   function createRoom() {
     socket = io();
     socket.on('connect', () => {
@@ -943,9 +1041,16 @@
         mode = 'online';
         role = 'host';
         codeEl.innerHTML = 'Tu sala:<br>' + roomCode;
-        statusEl.textContent = 'Esperando rival… compartile este código';
-        btnStart.style.display = 'block';
+        statusEl.textContent = 'Cargando tu plantel…';
         wireOnline();
+        loadMyClub().then(club => {
+          myClub = club;
+          if (club) { teamAName = club.name; teamAColor = club.color; }
+          if (gotOppSquad) sendMySquad();
+          maybeEnableStart();
+          if (!club) statusEl.textContent = 'Sin club en carrera: equipo genérico. Esperando rival…';
+          else if (!gotOppSquad) statusEl.textContent = 'Plantel: ' + club.name + ' · Esperando rival…';
+        });
       });
     });
   }
@@ -960,8 +1065,14 @@
         roomCode = res.code;
         mode = 'online';
         role = 'guest';
-        statusEl.textContent = 'Conectado. Esperando que empiece el rival…';
+        statusEl.textContent = 'Conectado. Cargando tu plantel…';
         wireOnline();
+        loadMyClub().then(club => {
+          myClub = club;
+          if (club) { teamBName = club.name; teamBColor = club.color; }
+          sendMySquad();
+          statusEl.textContent = club ? 'Plantel listo. Esperando que empiece el rival…' : 'Sin club en carrera: equipo genérico.';
+        });
       });
     });
   }
@@ -969,11 +1080,20 @@
   function wireOnline() {
     socket.on('opponent_joined', () => {
       statusEl.textContent = '¡Rival conectado!';
-      if (role === 'host') btnStart.style.display = 'block';
     });
     socket.on('opponent_left', () => {
       statusEl.textContent = 'El rival se fue.';
       if (role === 'host') btnStart.style.display = 'none';
+    });
+    socket.on('squad', (data) => {
+      gotOppSquad = true;
+      oppClub = data && data.lineup ? data : null;
+      if (data) {
+        if (role === 'host') { teamBName = data.name; teamBColor = data.color; }
+        else { teamAName = data.name; teamAColor = data.color; }
+      }
+      if (role === 'host' && myClub) sendMySquad();
+      maybeEnableStart();
     });
     socket.on('input', (d) => { remoteInput = d; });
     socket.on('state', (s) => { applyRemote(s); });
@@ -981,6 +1101,12 @@
       state = freshState();
       state.started = true;
       state.countdown = 3;
+      setTeamColors(teamAColor, teamBColor);
+      hideLobby();
+      hint.textContent = role === 'host'
+        ? 'Vos: ' + teamAName + ' (W A S D + Espacio) · Rival: ' + teamBName
+        : 'Vos: ' + teamBName + ' (Flechas + Enter) · Rival: ' + teamAName;
+      hint.style.display = 'block';
     });
 
     if (role === 'guest') {
@@ -992,13 +1118,14 @@
 
   function startOnline() {
     state = freshState();
+    state.teamA = makeTeam(1, myClub ? myClub.lineup : null);
+    state.teamB = makeTeam(-1, oppClub ? oppClub.lineup : null);
     state.started = true;
     state.countdown = 3;
+    setTeamColors(teamAColor, teamBColor);
     socket.emit('restart');
     hideLobby();
-    hint.textContent = role === 'host'
-      ? 'Vos: Azul (W A S D + Espacio) · Rival: Rojo'
-      : 'Vos: Rojo (Flechas + Enter) · Rival: Azul';
+    hint.textContent = 'Vos: ' + teamAName + ' (W A S D + Espacio) · Rival: ' + teamBName;
     hint.style.display = 'block';
   }
 

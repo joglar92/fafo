@@ -49,6 +49,11 @@ io.on('connection', (socket) => {
     if (socket.data.room) socket.to(socket.data.room).emit('state', data);
   });
 
+  // intercambio de planteles del modo carrera (host <-> guest)
+  socket.on('squad', (data) => {
+    if (socket.data.room) socket.to(socket.data.room).emit('squad', data);
+  });
+
   socket.on('restart', () => {
     if (socket.data.room) socket.to(socket.data.room).emit('restart');
   });
