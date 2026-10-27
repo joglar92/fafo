@@ -249,6 +249,7 @@ export class Game {
       hud.banner('CAMBIO', `${d.out.data.short} → ${d.in.data.short} (${d.team.short})`, 2.2);
     });
     m.on('offside', (d) => hud.banner('FUERA DE JUEGO', d.player.data.short, 1.8));
+    m.on('advantage', (d) => hud.banner('VENTAJA', d.team.name, 1.4));
     m.on('shootout', () => hud.banner('TANDA DE PENALES', '0 - 0', 2.5, 'alert'));
     m.on('soShot', (d) => hud.banner(`PENALES ${d.score[0]} - ${d.score[1]}`, d.scored ? '¡GOL!' : 'FALLÓ', 1.6, d.scored ? '' : 'alert'));
     m.on('setPiece', (d) => {

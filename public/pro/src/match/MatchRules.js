@@ -169,6 +169,12 @@ export class MatchRules {
     if (card === 'red' || card === 'second') team.stats.red++;
     const u = x * dir;
     const penalty = u < -HL + BOX_D && Math.abs(z) < BOX_HW;
+    // LEY DE LA VENTAJA: falta leve sin tarjeta ni penal, con el atacado en ataque → dejar seguir
+    if (!card && !penalty && !info.noBall && rng.chance(0.5) && victim.x * victim.team.dir > -HL + 20) {
+      victim.setState('free');
+      m.emit('advantage', { team: victim.team });
+      return;
+    }
     const b = m.ball;
     b.owner = null;
     b.held = false;
