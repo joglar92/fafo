@@ -44,6 +44,7 @@ function quickCfg() {
     halfMinutes: Number(q.get('half')) || 5,
     userSide: side,
     night: q.get('night') === '1',
+    shootout: q.get('comp') === 'cup',   // en la copa, el empate va a penales
   };
 }
 
@@ -74,13 +75,19 @@ async function start() {
       // Modo carrera: al terminar, devolvemos el resultado y volvemos al dashboard.
       const q = new URLSearchParams(location.search);
       if (q.get('career') === '1') {
-        game.match.on('fullTime', () => {
+        game.match.on('fullTime', (d) => {
           const m = game.match;
+          let myGoals = m.teams[0].score, oppGoals = m.teams[1].score;
+          if (d.shootout && d.winner) {
+            // la tanda de penales desempata para la copa
+            if (d.winner === m.teams[0]) myGoals++;
+            else oppGoals++;
+          }
           localStorage.setItem('fafo_career_pending', JSON.stringify({
-            myGoals: m.teams[0].score, oppGoals: m.teams[1].score,
+            myGoals, oppGoals,
             oppId: q.get('oppId'), comp: q.get('comp'),
           }));
-          setTimeout(() => { location.href = '/career.html'; }, 4000);
+          setTimeout(() => { location.href = '/career.html'; }, 5000);
         });
       }
     }

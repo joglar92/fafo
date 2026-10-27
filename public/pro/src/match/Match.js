@@ -95,6 +95,8 @@ export class Match {
     this.switchIdx = 0;
     this.firstKickoff = this.rng.chance(0.5) ? this.teams[0] : this.teams[1];
     this.kickoffNext = this.firstKickoff;
+    this.shootout = !!o.shootout;   // si hay empate, tanda de penales
+    this.so = null;                 // estado de la tanda de penales
     this.state = STATE.INTRO;
     this.stateT = 0;
     this.setPiece = this.rules.setup({ type: 'KICKOFF', team: this.firstKickoff });
@@ -410,6 +412,7 @@ export class Match {
     this.setPiece = null;
     sp.taker.fixed = false;
     this.setState(STATE.PLAYING);
+    if (this.so && this.so.phase === 'shot') this.so.phase = 'ball';
     if (sp.type === 'PENALTY') {
       const defending = sp.team.opponent;
       let side = null;
@@ -420,6 +423,7 @@ export class Match {
   }
 
   goal(team) {
+    if (this.so && this.so.phase === 'ball') { this.soGoal(team); return; }
     const b = this.ball;
     team.score++;
     const last = b.lastTouch, ls = this.lastShooter;
@@ -481,6 +485,55 @@ export class Match {
     this.startSetPiece({ type: 'KICKOFF', team: this.kickoffNext });
   }
 
+  // ----------------------------------------------------- Tanda de penales
+  startShootout() {
+    const [h, a] = this.teams;
+    this.so = { score: [0, 0], taken: [0, 0], taker: 0, phase: 'shot', ballT: 0 };
+    this.emit('shootout', {});
+    this.startSetPiece({ type: 'PENALTY', team: h });
+  }
+
+  soGoal(team) {
+    this.soAdvance(true, team);
+  }
+
+  soMiss() {
+    this.soAdvance(false, this.teams[this.so.taker]);
+  }
+
+  soDecided() {
+    const so = this.so;
+    const [a, b] = so.score;
+    if (so.taken[0] < 5 || so.taken[1] < 5) return false;   // aún en los 5 reglamentarios
+    if (a === b) return false;                              // empate → muerte súbita
+    return so.taken[0] === so.taken[1];                     // decidido si van parejos
+  }
+
+  soAdvance(scored, team) {
+    const so = this.so;
+    so.taken[team.side]++;
+    if (scored) so.score[team.side]++;
+    const round = Math.ceil((so.taken[0] + so.taken[1]) / 2);
+    this.emit('soShot', { team, scored, score: so.score.slice(), round });
+    this.ball.owner = null; this.ball.vx = 0; this.ball.vz = 0; this.ball.vy = 0; this.ball.inNet = 0;
+    for (const p of this.active) { p.stop(); if (p.state !== 'free') p.setState('free'); }
+    if (this.soDecided()) { this.endShootout(); return; }
+    so.taker = (so.taker + 1) % 2;
+    so.phase = 'shot';
+    so.ballT = 0;
+    this.startSetPiece({ type: 'PENALTY', team: this.teams[so.taker] });
+  }
+
+  endShootout() {
+    const so = this.so;
+    const [a, b] = so.score;
+    const winner = a > b ? this.teams[0] : this.teams[1];
+    this.so = null;
+    this.setState(STATE.FULL_TIME);
+    this.emit('shootoutEnd', { winner, score: [a, b] });
+    this.emit('fullTime', { winner, shootout: true, score: [a, b] });
+  }
+
   endHalf() {
     const b = this.ball;
     b.owner = null; b.held = false; b.passTarget = null; b.offside = null;
@@ -491,8 +544,13 @@ export class Match {
       this.emit('whistle', { kind: 'half' });
       this.emit('halfTime', {});
     } else {
-      this.setState(STATE.FULL_TIME);
       const [h, a] = this.teams;
+      if (this.shootout && h.score === a.score) {
+        this.emit('whistle', { kind: 'full' });
+        this.startShootout();
+        return;
+      }
+      this.setState(STATE.FULL_TIME);
       this.emit('whistle', { kind: 'full' });
       this.emit('fullTime', { winner: h.score > a.score ? h : a.score > h.score ? a : null });
     }
@@ -603,7 +661,11 @@ export class Match {
       this.updateControl();
       if (this.state === STATE.PLAYING) this.updateAerial();
       if (this.state === STATE.PLAYING) this.rules.checkBall();
-      if (this.state === STATE.PLAYING) {
+      if (this.state === STATE.PLAYING && this.so && this.so.phase === 'ball') {
+        // Tanda de penales: si el balón no entra, es fallo (por tiempo o por salir)
+        this.so.ballT += dt;
+        if (this.so.ballT > 3.5) this.soMiss();
+      } else if (this.state === STATE.PLAYING) {
         this.time += dt;
         if (this.time >= this.halfLen) {
           const danger = Math.abs(b.x) > HL - 30;

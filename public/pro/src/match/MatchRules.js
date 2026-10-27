@@ -110,6 +110,10 @@ export class MatchRules {
       m.goal(scoring);
       return;
     }
+    // Tanda de penales: el balón que sale es fallo (no hay saques de banda/puerta)
+    if (m.so && m.so.phase === 'ball') {
+      if (Math.abs(b.z) > HW + R || Math.abs(b.x) > HL + R) { m.soMiss(); return; }
+    }
     if (Math.abs(b.z) > HW + R && Math.abs(b.x) <= HL + R) {
       const x = clamp(b.x, -HL + 0.5, HL - 0.5), z = Math.sign(b.z) * HW;
       m.referee.signal(GESTURE.point, 1.2);

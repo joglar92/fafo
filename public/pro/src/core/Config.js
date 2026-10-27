@@ -40,6 +40,7 @@ export const STATE = {
   GOAL: 'GOAL',
   HALF_TIME: 'HALF_TIME',
   FULL_TIME: 'FULL_TIME',
+  SHOOTOUT: 'SHOOTOUT',
 };
 
 /** Estados en los que hay un lanzador esperando para poner el balón en juego. */
