@@ -284,7 +284,7 @@
     const leagueOppId = currentOpponent();
     const cupOppId = currentCupOpponent();
     const leagueDone = state.season.round >= state.season.rounds.length;
-    const cupDone = !state.cup || !!state.cup.champion;
+    const cupDone = !state.cup || !!state.cup.champion || !state.cup.teams.includes('me');
 
     let html = `
       <div class="overall-card">
