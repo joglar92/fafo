@@ -163,8 +163,88 @@
   }
 
   // ---- guardar/cargar ----
-  function save() { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+  function save() {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+    if (currentUser) localStorage.setItem(clubKeyFor(currentUser), JSON.stringify(state));
+  }
   function load() { return JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); }
+
+  // ---- login (usuarios) ----
+  const USERS_KEY = 'fafo_users';
+  const SESSION_KEY = 'fafo_session';
+  let currentUser = null;
+
+  function hashPass(username, pass) {
+    let h = 5381;
+    const s = username + ':' + pass;
+    for (let i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+    return String(h >>> 0);
+  }
+  function loadUsers() { return JSON.parse(localStorage.getItem(USERS_KEY) || '{}'); }
+  function saveUsers(u) { localStorage.setItem(USERS_KEY, JSON.stringify(u)); }
+  function clubKeyFor(u) { return SAVE_KEY + '_' + u.toLowerCase(); }
+  function loadClubFor(u) { return JSON.parse(localStorage.getItem(clubKeyFor(u)) || 'null'); }
+
+  function showLogin() {
+    $('#login').style.display = 'flex';
+    $('#setup').style.display = 'none';
+    $('#dash').style.display = 'none';
+  }
+
+  function enter(user) {
+    currentUser = user;
+    localStorage.setItem(SESSION_KEY, user);
+    state = loadClubFor(user);
+    if (!state) {
+      // migración: si había un club guardado sin cuenta, lo toma este usuario
+      const legacy = load();
+      if (legacy && legacy.squad) { state = legacy; save(); }
+    }
+    if (state) {
+      if (state.cup === undefined) state.cup = newCup();
+      if (state.level === undefined) { state.level = 1; state.xp = 0; state.coins = 500; state.gems = 10; }
+      if (state.playerName === undefined) {
+        state.playerName = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0].name;
+        state.playerNumber = 10;
+      }
+      save();
+      showDash(); render(); applyPending(); render();
+    } else {
+      showSetup();
+    }
+  }
+
+  function doLogin() {
+    const u = $('#loginUser').value.trim();
+    const p = $('#loginPass').value;
+    const msg = $('#loginMsg');
+    if (!u || !p) { msg.textContent = 'Poné usuario y contraseña'; return; }
+    const rec = loadUsers()[u.toLowerCase()];
+    if (!rec || rec.pass !== hashPass(u, p)) { msg.textContent = 'Usuario o contraseña incorrectos'; return; }
+    enter(u);
+  }
+
+  function doRegister() {
+    const u = $('#loginUser').value.trim();
+    const p = $('#loginPass').value;
+    const msg = $('#loginMsg');
+    if (!u || !p) { msg.textContent = 'Poné usuario y contraseña'; return; }
+    if (u.length < 3) { msg.textContent = 'El usuario necesita 3 letras o más'; return; }
+    if (p.length < 4) { msg.textContent = 'La contraseña necesita 4 caracteres o más'; return; }
+    const users = loadUsers();
+    if (users[u.toLowerCase()]) { msg.textContent = 'Ese usuario ya existe'; return; }
+    users[u.toLowerCase()] = { pass: hashPass(u, p) };
+    saveUsers(users);
+    enter(u);
+  }
+
+  function logout() {
+    if (currentUser && state) localStorage.setItem(clubKeyFor(currentUser), JSON.stringify(state));
+    localStorage.removeItem(SESSION_KEY);
+    currentUser = null; state = null;
+    closeCustom();
+    showLogin();
+  }
 
   function newSeason() {
     const ids = ['me', ...teams.map(t => t.id)];
@@ -338,6 +418,12 @@
     }
   }
 
+  function goHome() {
+    currentTab = 'home';
+    document.querySelectorAll('.navbar button').forEach(x => x.classList.toggle('active', x.dataset.tab === 'home'));
+    render();
+  }
+
   function render() {
     $('#badge').textContent = state.clubName.charAt(0).toUpperCase();
     $('#badge').style.background = state.clubColor;
@@ -352,6 +438,10 @@
       case 'league': renderLeague(); break;
       case 'cup': renderCup(); break;
       default: renderHome();
+    }
+    if (currentTab !== 'home') {
+      $('#content').insertAdjacentHTML('afterbegin', '<button class="btn secondary" id="btnBackHome" style="width:100%;margin-bottom:12px">← Volver al inicio</button>');
+      $('#btnBackHome').addEventListener('click', goHome);
     }
   }
 
@@ -415,8 +505,8 @@
   }
 
   // ---- setup ----
-  function showSetup() { $('#setup').style.display = 'flex'; $('#dash').style.display = 'none'; }
-  function showDash() { $('#setup').style.display = 'none'; $('#dash').style.display = 'flex'; }
+  function showSetup() { $('#login').style.display = 'none'; $('#setup').style.display = 'flex'; $('#dash').style.display = 'none'; }
+  function showDash() { $('#login').style.display = 'none'; $('#setup').style.display = 'none'; $('#dash').style.display = 'flex'; }
 
   function createClub() {
     const name = $('#clubName').value.trim();
@@ -507,22 +597,16 @@
     $('#btnSettings').addEventListener('click', openCustom);
     $('#btnSaveCustom').addEventListener('click', saveCustom);
     $('#btnCloseCustom').addEventListener('click', closeCustom);
+    $('#btnLogout').addEventListener('click', logout);
+    $('#btnLogin').addEventListener('click', doLogin);
+    $('#btnRegister').addEventListener('click', doRegister);
+    $('#loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
-    state = load();
-    if (state) {
-      // migración: si falta campo de la versión anterior
-      if (state.cup === undefined) state.cup = newCup();
-      if (state.level === undefined) { state.level = 1; state.xp = 0; state.coins = 500; state.gems = 10; }
-      if (state.playerName === undefined) {
-        state.playerName = state.squad.map(id => playersById[id]).sort((a, b) => b.rating - a.rating)[0].name;
-        state.playerNumber = 10;
-      }
-      showDash();
-      render();
-      applyPending();
-      render();
+    const session = localStorage.getItem(SESSION_KEY);
+    if (session && loadUsers()[session.toLowerCase()]) {
+      enter(session);
     } else {
-      showSetup();
+      showLogin();
     }
   }
 

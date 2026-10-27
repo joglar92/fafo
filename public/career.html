@@ -88,7 +88,7 @@
     .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 12px 0 8px; }
 
     /* setup */
-    #setup { position: absolute; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 5; }
+    #setup, #login { position: absolute; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 5; }
     .panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; text-align: center; }
     .panel h2 { margin-bottom: 4px; }
     .panel .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
@@ -130,6 +130,18 @@
 <body>
   <canvas id="ballbg" aria-hidden="true"></canvas>
   <div id="app">
+    <div id="login">
+      <div class="panel">
+        <h2>⚽ FAFO</h2>
+        <div class="sub">Iniciá sesión para jugar con tu club</div>
+        <input id="loginUser" placeholder="Usuario" maxlength="20" autocomplete="off">
+        <input id="loginPass" type="password" placeholder="Contraseña" maxlength="40" autocomplete="off">
+        <button class="btn primary" id="btnLogin" style="width:100%">Entrar</button>
+        <button class="btn secondary" id="btnRegister" style="width:100%;margin-top:10px">Crear cuenta</button>
+        <div id="loginMsg" style="color:#ff7b72;min-height:18px;font-size:13px;margin-top:8px"></div>
+      </div>
+    </div>
+
     <div id="setup">
       <div class="panel">
         <h2>🏆 Creá tu club</h2>
@@ -181,10 +193,11 @@
           <button class="btn primary" id="btnSaveCustom">Guardar</button>
           <button class="btn secondary" id="btnCloseCustom">Cerrar</button>
         </div>
+        <button class="btn secondary" id="btnLogout" style="width:100%;margin-top:10px">🚪 Cerrar sesión</button>
       </div>
     </div>
   </div>
-  <script src="/career.js?v=2"></script>
+  <script src="/career.js?v=3"></script>
   <script src="/ball.js?v=2"></script>
 </body>
 </html>

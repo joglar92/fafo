@@ -163,7 +163,7 @@ export class Match {
     const b = this.ball;
     if (b.owner && b.owner.team === this.userTeam) { this.setControlled(b.owner); return; }
     const list = this.userTeam.players.filter((p) => !p.isGK)
-      .sort((a, c) => a.ai.eta - c.ai.eta);
+      .sort((a, c) => Math.hypot(a.x - b.x, a.z - b.z) - Math.hypot(c.x - b.x, c.z - b.z));
     if (this.switchT > 0.9) this.switchIdx = 0;
     this.switchT = 0;
     let pick = list[this.switchIdx % list.length];

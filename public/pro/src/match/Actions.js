@@ -159,6 +159,8 @@ export function findPassTarget(match, p, dirx, dirz, power, opts = {}) {
     if (t.isGK) s += 0.3;
     // Asistencia: entre dos opciones parecidas, mejor la que tiene la línea limpia
     if (opts.lanes !== false) s += laneRisk(p.team, p.x, p.z, t.x, t.z, 16) * 0.4;
+    // Asistencia: se prefiere al compañero con más espacio libre
+    s -= Math.min(8, nearestOpponentDist(p.team, t.x, t.z)) * 0.05;
     if (s < bs) { bs = s; best = t; }
   }
   return best;
@@ -235,7 +237,7 @@ export function pass(match, p, o = {}) {
   let tx, tz, speed;
   if (t) {
     const d0 = Math.hypot(t.x - b.x, t.z - b.z);
-    const lead = Math.min(0.6, d0 / 22);
+    const lead = Math.min(1.0, d0 / 14);
     tx = t.x + t.vx * lead;
     tz = t.z + t.vz * lead;
     const d = Math.hypot(tx - b.x, tz - b.z);
